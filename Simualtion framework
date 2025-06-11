@@ -1,0 +1,591 @@
+############################################
+#
+# Simulation frameworks for the study "Optimising biodiversity offsetting to account for habitat succession and species colonisation dynamics"
+#
+############################################
+
+set.seed(1)  
+
+library(igraph)
+library(ggplot2)
+library(ggpubr)
+library(tidyverse)
+library(RColorBrewer)
+library(purrr)
+
+
+######
+# Fixed parameters
+
+# 2D landscape of grid cells
+nrows <- 100
+ncols <- 100
+ncells <- nrows * ncols
+grid <- expand.grid(X = 1:nrows, Y = 1:ncols)
+
+# Number of patches in simulated network
+M <- 1000
+
+# Time steps in simulations
+T <- 100
+
+# Number of years representing a time step
+tyears <- 5
+
+
+######
+# Parameters to sample during the simulated scenarios
+
+# Habitat compensation factor (HCF): determines how many ‘marginal’ patches are converted into ‘offset’ patches per impacted patch
+pars_HCF <- seq(0.5,6, by = 0.5)
+
+# conservation commitment period (CCP): determines the timespan for how long offset patches are safeguarded from any activity
+pars_CCP <- seq(1, 40, by = 1)
+
+# Impact period (IP): determines the timespan for how long impacted patches are impacted 
+pars_IP <- seq(1, 40, by = 1)
+
+# Number of impacted patches (Nimpacted): number of impacted patches per time step, whereby all trees are removed from these selected habitat or marginal patches
+pars_Nimpacted <- seq(2, 20, by =1)
+
+# Habitat impact ratio (HIR): determines the proportion of 'Nimpacted' that affects habitat patches rather than marginal patches.
+pars_HIR <- seq(0.1, 1, by=0.1)
+
+# Maximum dispersal distance (dispmax): determines that all empty but suitable patch will be colonised if any nearby patch in a distance ≤ dispmax is occupied and enables colonisation
+pars_dispmax <- seq(5,100, by = 5)
+
+# Extinction rate (occext): extinct rate of coloniser species from any occupied patch 
+pars_occext <- seq(0.1, 0.9, by = 0.1)
+
+# Habitat age threshold (minagehab): minimum stand age that allows a species to colonise a patch
+pars_minagehab <- c(1, 5, seq(10,50, by = 5)) 
+
+# Maximum forest age threshold for ‘successional specialist’ coloniser species
+SpSuccSpec_HabitatAgeMax <- 100
+
+# Proportion of patches with protected forests (pProtect)
+pars_pProtect <- seq(0.01, 0.2, by = 0.02)
+
+# Perturbation frequency (probability a patch with forest is perturbed)
+pars_pperturb <- c(0, 0.05)
+
+NSimulations <- 2*10^5      ## NSimulations <- dim(Parameters_impact)[1] 
+
+Parameters_sampled <- data.frame(
+  SimNo = 1:NSimulations,
+  HCF = sample(pars_HCF, NSimulations, replace = TRUE),
+  CCP = sample(pars_CCP, NSimulations, replace = TRUE),
+  IP = sample(pars_IP, NSimulations, replace = TRUE),
+  Nimpacted = sample(pars_Nimpacted, NSimulations, replace = TRUE),
+  HIR = sample(pars_HIR, NSimulations, replace = TRUE),
+  minagehab = sample(pars_minagehab, NSimulations, replace = TRUE),
+  dispmax = sample(pars_dispmax, NSimulations, replace = TRUE),
+  occext = sample(pars_occext, NSimulations, replace = TRUE),
+  pProtect = sample(pars_pProtect, NSimulations, replace = TRUE), 
+  pperturb = sample(pars_pperturb, NSimulations, replace = TRUE))
+
+# Data frame for summary stats 
+SummaryStatsGlobal <- Parameters_sampled
+SummaryStatsGlobal$NpatchProtected <- NA
+SummaryStatsGlobal$Intactness_t0 <- NA
+SummaryStatsGlobal$Intactness_t1 <- NA
+SummaryStatsGlobal$Intactness_t2 <- NA
+SummaryStatsGlobal$Intactness_t5 <- NA
+SummaryStatsGlobal$Intactness_t10 <- NA
+SummaryStatsGlobal$Intactness_t15 <- NA
+SummaryStatsGlobal$Intactness_t20 <- NA
+SummaryStatsGlobal$Intactness_t25 <- NA
+SummaryStatsGlobal$Intactness_t50 <- NA
+SummaryStatsGlobal$Intactness_T <- NA
+SummaryStatsGlobal$Intactness_CV <- NA
+SummaryStatsGlobal$Intactness_maxtime <- NA
+SummaryStatsGlobal$Intactness_mintime <- NA
+SummaryStatsGlobal$Intactness_maxval <- NA
+SummaryStatsGlobal$Intactness_minval <- NA
+SummaryStatsGlobal$IntactnessHabitat_t50 <- NA
+SummaryStatsGlobal$IntactnessOffset_t50 <- NA
+SummaryStatsGlobal$IntactnessHabitat_T <- NA
+SummaryStatsGlobal$IntactnessOffset_T <- NA
+
+SummaryStatsGlobal$npatch_age50_t0 <- NA
+SummaryStatsGlobal$npatch_age50_t1 <- NA
+SummaryStatsGlobal$npatch_age50_t2 <- NA
+SummaryStatsGlobal$npatch_age50_t5 <- NA
+SummaryStatsGlobal$npatch_age50_t10 <- NA
+SummaryStatsGlobal$npatch_age50_t15 <- NA
+SummaryStatsGlobal$npatch_age50_t20 <- NA
+SummaryStatsGlobal$npatch_age50_t25 <- NA
+SummaryStatsGlobal$npatch_age50_t50 <- NA
+SummaryStatsGlobal$npatch_age50_T <- NA
+
+SummaryStatsGlobal$npatch_age50_maxtime <- NA
+SummaryStatsGlobal$npatch_age50_mintime <- NA
+SummaryStatsGlobal$npatch_age50_maxval <- NA
+SummaryStatsGlobal$npatch_age50_minval <- NA
+
+SummaryStatsGlobal$SpPersCol_t0 <- NA
+SummaryStatsGlobal$SpPersCol_t1 <- 
+SummaryStatsGlobal$SpPersCol_t2 <- NA  
+SummaryStatsGlobal$SpPersCol_t5 <- NA
+SummaryStatsGlobal$SpPersCol_t10 <- NA
+SummaryStatsGlobal$SpPersCol_t15 <- NA
+SummaryStatsGlobal$SpPersCol_t20 <- NA
+SummaryStatsGlobal$SpPersCol_t25 <- NA
+SummaryStatsGlobal$SpPersCol_t50 <- NA
+SummaryStatsGlobal$SpPersCol_T <- NA
+SummaryStatsGlobal$SpPersCol_CV <- NA
+SummaryStatsGlobal$SpPersCol_maxtime <- NA
+SummaryStatsGlobal$SpPersCol_mintime <- NA
+SummaryStatsGlobal$SpPersCol_maxval <- NA
+SummaryStatsGlobal$SpPersCol_minval <- NA
+SummaryStatsGlobal$marginalExhaustTime <- NA
+SummaryStatsGlobal$NImpactMax <- NA
+SummaryStatsGlobal$NImpactMean <- NA
+SummaryStatsGlobal$NOffsetMax <- NA
+
+SummaryStatsGlobal$SpSuccSpec_t0 <- NA
+SummaryStatsGlobal$SpSuccSpec_t1 <- NA
+SummaryStatsGlobal$SpSuccSpec_t2 <- NA
+SummaryStatsGlobal$SpSuccSpec_t5 <- NA
+SummaryStatsGlobal$SpSuccSpec_t10 <- NA
+SummaryStatsGlobal$SpSuccSpec_t15 <- NA
+SummaryStatsGlobal$SpSuccSpec_t20 <- NA
+SummaryStatsGlobal$SpSuccSpec_t25 <- NA
+SummaryStatsGlobal$SpSuccSpec_t50 <- NA
+SummaryStatsGlobal$SpSuccSpec_T <- NA
+SummaryStatsGlobal$SpSuccSpec_CV <- NA
+SummaryStatsGlobal$SpSuccSpec_maxtime <- NA
+SummaryStatsGlobal$SpSuccSpec_mintime <- NA
+SummaryStatsGlobal$SpSuccSpec_maxval <- NA
+SummaryStatsGlobal$SpSuccSpec_minval <- NA
+
+rm(Parameters_sampled)
+
+
+######################
+# Run simulations
+
+for(sim in 1:NSimulations){
+  # Parameters to sample from dataframe
+  Nimpacted <- SummaryStatsGlobal$Nimpacted[sim]
+  HIR <- SummaryStatsGlobal$HIR[sim]
+  HCF <- SummaryStatsGlobal$HCF[sim]
+  CCP <- SummaryStatsGlobal$CCP[sim]
+  IP <- SummaryStatsGlobal$IP[sim]
+
+  minagehab <- SummaryStatsGlobal$minagehab[sim]
+  dispmax <- SummaryStatsGlobal$dispmax[sim]
+  occext <- SummaryStatsGlobal$occext[sim]
+
+  pProtect <- SummaryStatsGlobal$pProtect[sim]
+  pperturb <- SummaryStatsGlobal$pperturb[sim]
+  
+  ##  Generate patch network 
+  # Sample patches and their grid positions
+  patch_coord <- grid[sample(1:nrow(grid), M), ]
+  rownames(patch_coord) <- paste0("p.", rownames(patch_coord))
+  
+  # Step 2: Compute pairwise distance matrix between patches
+  dist_patch <- as.matrix(dist(patch_coord ))
+  
+  # Proportion of patches in different habitat states
+  proppatch_habitat <- 0.20      #######  round(ncells * 0.03/M, 2) #Assume 3% of forest are not protected in the UK
+  proppatch_marginal <- 1 - (pProtect + proppatch_habitat)
+  
+  state_name <- c("protected", "habitat", "marginal", "impact", "offset")
+  state_prob <- c(pProtect, proppatch_habitat, proppatch_marginal, 0, 0)
+  
+  # Patch attribute table
+  Patch_attrib <- patch_coord
+  
+  Patch_attrib$patchID <- rownames(Patch_attrib)
+  Patch_attrib$state_inital <- sample(state_name, size= M, replace = TRUE, prob = state_prob)
+  
+  # Long table format of pairwise distances between patches
+  DFdist_patch <- as.data.frame(as.table(dist_patch))
+  colnames(DFdist_patch) <- c("patch1", "patch2", "dist")
+  # Remove redundant rows
+  DFdist_patch <- DFdist_patch[DFdist_patch$patch1 != DFdist_patch$patch2, ]
+  
+  # Generate data.frame of (tree) individuals and populations according to initial patch types
+  ind0_attributes <- c("patch.ID", "TreeAge", "patch_type")
+  n_attribute <- length(ind0_attributes) 
+  
+  Inds_0 <- data.frame(array(NA, dim=c(1, n_attribute)))
+  colnames(Inds_0) <- ind0_attributes
+  for(i in 1:M){
+    rowadd <- nrow(Inds_0) + 1
+    patch_type <- Patch_attrib$state_inital[i]
+    patch_id <- Patch_attrib$patchID[i]
+    if(patch_type =="protected"){
+      nind <- 100
+      indnew <- data.frame(
+        patch.ID =  rep(patch_id, nind),
+        TreeAge =  rep(200, nind),  ##sample(50:200, nind, replace = T),
+        patch_type = rep(patch_type, nind))
+      Inds_0 <- rbind(Inds_0, indnew)
+      rm(indnew)      
+    }else{}
+    if(patch_type =="habitat"){
+      nind <- 100
+      indnew <- data.frame(
+        patch.ID =  rep(patch_id, nind),
+        TreeAge =  rep(50, nind),   ##sample(10:50, nind, replace = T),
+        patch_type = rep(patch_type, nind))
+      Inds_0 <- rbind(Inds_0, indnew)
+      rm(indnew)    
+    }else{}  
+  }
+  
+  # Intactness values of the initial landscape
+  Intactness_initial <- sum(Inds_0$TreeAge[-1])/(M*100)
+  Intactness_protected <-   sum(Inds_0$TreeAge[which(Inds_0$patch_type=="protected")])/(M*100)
+  Inactness.habitat_initial  <- Intactness_initial - Intactness_protected 
+  
+  # New patch attribute table for simulations
+  SimPatch <- Patch_attrib
+  SimPatch$state_sim <- SimPatch$state_inital
+  SimPatch$impact_time <- NA
+  SimPatch$impact_init <- 0
+  SimPatch$impact_cum <- 0
+  SimPatch$offset_time <- 0
+  SimPatch$offset_cum <- 0
+  SimPatch$AgeMean <- 0
+  
+  # Initial mean age on each patch
+  SimPatch$AgeMean_initial <- NA
+  for(m in 1:M){ 
+    indrows_patch <- which(Inds_0$patch.ID== SimPatch$patchID[m])
+    SimPatch$AgeMean_initial[m] <- ifelse(length(indrows_patch)>0, mean(Inds_0$TreeAge[indrows_patch]), 0)
+  }
+  SimPatch$AgeMean <- SimPatch$AgeMean_initial
+  
+  # Dataframe for simulation summaries
+  SimSummary <- data.frame(step = 1:T, n_2impact = NA, n_impact2habitat = NA, n_impact2marginal = NA, new_impact = NA, n_2impact=NA, n_2offset = NA, 
+                           nall_habitat = NA, nall_marginal = NA, nall_impact = NA, n_offset_target = NA,
+                           nall_offset = NA, nall_intact50 = NA, n_offsetend = NA, n_impactend = NA, impact_cum= 0, offset_cum= 0, nall_SpM = NA, nall_SpSuccSpec = NA)
+  
+  # New patch data table to store species occupancy for SpPersCol and SpSuccSpec
+  OccPatch_SpPersCol <- Patch_attrib
+  OccPatch_SpPersCol$Occ_initial <- ifelse(SimPatch$AgeMean_init>=  minagehab, 1, 0)
+  OccPatch_SpPersCol$Occ <- OccPatch_SpPersCol$Occ_initial
+  
+  OccPatch_SpSuccSpec <- Patch_attrib
+  OccPatch_SpSuccSpec$Occ_initial <- ifelse(SimPatch$AgeMean_init>=  minagehab & SimPatch$AgeMean_init<= SpSuccSpec_HabitatAgeMax, 1, 0)
+  OccPatch_SpSuccSpec$Occ <- OccPatch_SpPersCol$Occ_initial
+  
+  Inds_sim <- Inds_0
+  
+  SummaryStatsGlobal$Intactness_t0[sim] <- mean(SimPatch$AgeMean_initial)
+  SummaryStatsGlobal$SpPersCol_t0[sim] <- sum(OccPatch_SpPersCol$Occ_initial)
+  SummaryStatsGlobal$SpSuccSpec_t0[sim] <- sum(OccPatch_SpSuccSpec$Occ_initial)
+
+  SummaryStatsGlobal$npatch_age50_t0[sim] <- length(which(SimPatch$AgeMean_initial>=50))  
+    
+  # Loop over time steps in simulations
+  for (tstep in 1:T){
+    #######
+    # Patches to change status
+    # Patches to be reassigned from 'offset' as 'habitat' after end of offset period
+    rowspatch_offsetend <- which(SimPatch$state_sim=="offset" & (tstep - SimPatch$offset_time) > CCP & SimPatch$offset_time>0)   
+    n_offset_end <- length(rowspatch_offsetend)
+    SimPatch$state_sim[rowspatch_offsetend] <- "habitat"
+    # Patches to be reassigned from 'impact' as 'marginal' after end of impact period   
+    rowspatch_impactend <- which(SimPatch$state_sim=="impact" & (tstep - SimPatch$impact_time) > IP & SimPatch$impact_time>0)      
+    n_impact_end <- length(rowspatch_impactend)  
+    SimPatch$state_sim[rowspatch_impactend] <- "marginal"    
+    # Patches with habitat (available for impact)
+    habitat_patchID <- SimPatch$patchID[which(SimPatch$state_sim=="habitat")]
+    # Patches with habitat (available for impact)
+    marginal_patchID_1 <- SimPatch$patchID[which(SimPatch$state_sim=="marginal")] 
+    n_marginal_1 <- length(marginal_patchID_1)
+    # Number of habitat patches
+    n_habitat <- length(habitat_patchID)
+    # Number of patches to impact
+    n_2impact <- round(min((n_habitat + n_marginal_1), Nimpacted))
+    # Number of patches to impact on habitat
+    n_impact2habitat <- min(round(n_2impact*  HIR), n_habitat)  
+    # Number of patches to impact on marginal
+    n_impact2marginal <- min((n_2impact-n_impact2habitat), n_marginal_1) 
+    # Patches with impact on habitat and/or marginal
+    if(n_habitat>0 & n_marginal_1>0){
+      impact_new_patchID <- c(sample(habitat_patchID, size= n_impact2habitat), sample(marginal_patchID_1, size= n_impact2marginal) )
+    }
+    if(n_habitat>0 & n_marginal_1==0){
+      impact_new_patchID <- sample(habitat_patchID, size= n_impact2habitat)
+    }    
+    if(n_habitat==0 & n_marginal_1>0){
+      impact_new_patchID <- sample(marginal_patchID_1, size= n_impact2marginal)
+    }    
+    
+    # Patches with marginal land (available for offset)    
+    marginal_patchID_2 <- SimPatch$patchID[which(SimPatch$state_sim=="marginal")] 
+    # Number of available marginal patches    
+    n_marginal_2 <- length(marginal_patchID_2)
+    # Number of patches targeted to offset
+    n_offset_target <- round(n_impact2habitat * HCF)
+    # Number of patches to offset (IF available)
+    n_2offset <- min(round(n_impact2habitat * HCF), n_marginal_2)
+    # patches to offset    
+    offset_new_patchID <- sample(marginal_patchID_2, size= n_2offset)   
+    
+    #######
+    # Update patch attribute table
+    # Chance new impact patches to "impact"
+    SimPatch$state_sim[which(!is.na(match(SimPatch$patchID, impact_new_patchID)))] <- "impact"
+    # Chance new offset patches to "offset"   
+    SimPatch$state_sim[which(!is.na(match(SimPatch$patchID, offset_new_patchID)))] <- "offset"
+    
+    # Set time and initial impact value for new impact patches
+    if(n_2impact >0){
+      SimPatch$impact_time[which(!is.na(match(SimPatch$patchID, impact_new_patchID)))] <- tstep
+      for(imp in 1:n_2impact){
+        SimPatch$impact_init[which(SimPatch$patchID==impact_new_patchID[imp])] <- mean(Inds_sim$TreeAge[which(Inds_sim$patch.ID== impact_new_patchID[imp])], na.rm=T)
+      }
+    }else{}
+    
+    # Set time and initial offset value for offset patches
+    if(n_2offset >0){
+      SimPatch$offset_time[which(!is.na(match(SimPatch$patchID, offset_new_patchID)))] <- tstep
+    }else{}    
+    
+    # Long-term impact value   
+    patchrows_impact <- which(SimPatch$state_sim=="impact")    
+    nall_impact <- length(patchrows_impact)
+    for(imp2 in 1:nall_impact){
+      SimPatch$impact_cum[patchrows_impact[imp2]] <- SimPatch$impact_init[patchrows_impact[imp2]] * (1 + (tstep - SimPatch$impact_time[patchrows_impact[imp2]]))
+    } 
+    
+    # Long-term offset value
+    patchrows_offset <- which(SimPatch$state_sim=="offset")
+    nall_offset <- length(patchrows_offset)
+    for(off2 in 1:nall_offset){
+      trees_onpatch <- length(which(Inds_sim$patch.ID== SimPatch$patchID[patchrows_offset[off2]]))   
+      if(trees_onpatch >0){
+        SimPatch$offset_cum[patchrows_offset[off2]] <- SimPatch$offset_cum[patchrows_offset[off2]] +
+          mean(Inds_sim$TreeAge[which(Inds_sim$patch.ID== SimPatch$patchID[patchrows_offset[off2]] )], na.rm=T)        
+      }
+    }
+    
+    #######
+    # Update individual tree table    
+    # Remove tree individuals from impact patches
+    indrows_remove <- which(!is.na(match(Inds_sim$patch.ID, impact_new_patchID)))
+    if(length(indrows_remove)>=1){
+      Inds_sim <- Inds_sim[-indrows_remove, ]
+    }else{}
+    
+    # Update tree age on offset and protected patches
+    offset_patchID <- SimPatch$patchID[which(SimPatch$state_sim=="offset")]
+    sel_trees_offset <- which(!is.na(match(Inds_sim$patch.ID,  offset_patchID)))
+    Inds_sim$TreeAge[sel_trees_offset] <- ifelse(Inds_sim$TreeAge[sel_trees_offset]<=195, Inds_sim$TreeAge[sel_trees_offset] + tyears, 200)
+
+    # Random selection of offset patch to perturb and reduce age to 1/2
+    offset2perturb_patchID <- offset_patchID[which(rbinom(length(offset_patchID), 1, pperturb)==1)]
+    n_perturb <- length(offset2perturb_patchID)
+    if(n_perturb>0){
+      sel_trees_perturb <- which(!is.na(match(Inds_sim$patch.ID,  offset2perturb_patchID)))
+      Inds_sim$TreeAge[sel_trees_perturb] <- Inds_sim$TreeAge[sel_trees_perturb] * 0.5
+    }
+
+    # Add individuals for new offset patches
+    if(n_2offset>=1){
+      for(i in 1:n_2offset){
+        nind <- 100
+        indnew_offset <- data.frame(
+          patch.ID =  rep(offset_new_patchID[i], nind),
+          TreeAge =  sample(1:10, nind, replace = T),
+          patch_type = rep("offset", nind)) 
+        Inds_sim <- rbind(Inds_sim, indnew_offset)
+      }   
+    }else{}     
+    
+    # Mean Age of forest stand in patches after impact and offset
+    for(m in 1:M){ 
+      indrows_patch <- which(Inds_sim$patch.ID== SimPatch$patchID[m])
+      SimPatch$AgeMean[m] <- ifelse(length(indrows_patch)>0, mean(Inds_sim$TreeAge[indrows_patch]), 0)
+    }    
+    
+    #######       
+    # Update patch occupancy table for metapopulation species 
+    
+    ####  SpPersCol (persistent coloniser)
+    # Absence of species in patches with age below threshold
+    OccPatch_SpPersCol$Occ <- ifelse(SimPatch$AgeMean[match(OccPatch_SpPersCol$patchID,  SimPatch$patchID)] <= minagehab, 0, OccPatch_SpPersCol$Occ)
+    
+    # Extinction in patches by chance  
+    OccPatch_SpPersCol$Occ -  rbinom(length(OccPatch_SpPersCol$Occ), 1, OccPatch_SpPersCol$Occ*(1-occext))
+    
+    # Colonisation of patches
+    patchID_agethreshold <- SimPatch$patchID[which(SimPatch$AgeMean >=minagehab)]
+    patchID_empty <- OccPatch_SpPersCol$patchID[which(OccPatch_SpPersCol$Occ==0)]
+    patchID_suite2colonise <- intersect(patchID_agethreshold, patchID_empty)
+    n_suite2colonise <- length(patchID_suite2colonise)
+    for(col in 1: n_suite2colonise){
+      patch_alldist <- dist_patch[which(rownames(dist_patch)==patchID_suite2colonise[col]),]
+      patch_connected <- patch_alldist[which(patch_alldist<=dispmax)]
+      patchID_connected <- names(patch_alldist[which(patch_alldist<=dispmax)])
+      if(length(patch_connected)>0){
+        colonise <-  ifelse(sum(OccPatch_SpPersCol$Occ[which(!is.na(match(OccPatch_SpPersCol$patchID, patchID_connected)))])>0,1,0) 
+        OccPatch_SpPersCol$Occ[which(OccPatch_SpPersCol$patchID==patchID_suite2colonise[col])] <- colonise
+      }else{}
+    }
+    
+    ####  SpSuccSpec (Successional specialist)
+    # Absence of species in patches with age below threshold
+    OccPatch_SpSuccSpec$Occ <- ifelse(SimPatch$AgeMean[match(OccPatch_SpSuccSpec$patchID,  SimPatch$patchID)] <= minagehab | 
+                                 SimPatch$AgeMean[match(OccPatch_SpSuccSpec$patchID,  SimPatch$patchID)] >= SpSuccSpec_HabitatAgeMax , 0, OccPatch_SpSuccSpec$Occ)
+    
+    # Extinction in patches by chance  
+    OccPatch_SpSuccSpec$Occ -  rbinom(length(OccPatch_SpSuccSpec$Occ), 1, OccPatch_SpSuccSpec$Occ*(1-occext))
+    
+    # Colonisation of patches
+    patchID_agethreshold <- SimPatch$patchID[which(SimPatch$AgeMean >=minagehab & SimPatch$AgeMean <= SpSuccSpec_HabitatAgeMax)]
+    patchID_empty <- OccPatch_SpSuccSpec$patchID[which(OccPatch_SpSuccSpec$Occ==0)]
+    patchID_suite2colonise <- intersect(patchID_agethreshold, patchID_empty)
+    n_suite2colonise <- length(patchID_suite2colonise)
+    for(col in 1: n_suite2colonise){
+      patch_alldist <- dist_patch[which(rownames(dist_patch)==patchID_suite2colonise[col]),]
+      patch_connected <- patch_alldist[which(patch_alldist<=dispmax)]
+      patchID_connected <- names(patch_alldist[which(patch_alldist<=dispmax)])
+      if(length(patch_connected)>0){
+        colonise <-  ifelse(sum(OccPatch_SpSuccSpec$Occ[which(!is.na(match(OccPatch_SpSuccSpec$patchID, patchID_connected)))])>0,1,0) 
+        OccPatch_SpSuccSpec$Occ[which(OccPatch_SpSuccSpec$patchID==patchID_suite2colonise[col])] <- colonise
+      }else{}
+    }
+    
+    #######       
+    # Update summary table
+    
+    # Overall 'landscape' age index
+    SimSummary$age.index_total[tstep] <- sum(SimPatch$AgeMean)/M
+    SimSummary$age.index_offset[tstep] <- sum(SimPatch$AgeMean[which(SimPatch$state_sim=="offset")])/M   
+    SimSummary$age.index_habitat[tstep] <- sum(SimPatch$AgeMean[which(SimPatch$state_sim=="habitat")])/M
+    SimSummary$age.index_protect[tstep] <- sum(SimPatch$AgeMean[which(SimPatch$state_sim=="protect")])/M
+    SimSummary$age.index_habitat_mean[tstep] <- mean(SimPatch$AgeMean[which(SimPatch$state_sim=="habitat")])
+    # Number of new patches with impact
+    SimSummary$n_2impact[tstep] <- n_2impact
+    # Number of new patches with offset
+    SimSummary$n_2offset[tstep] <- n_2offset    
+    # Number of new patches with offset target
+    SimSummary$n_offset_target[tstep] <- n_offset_target
+    # Number of patches characterized as 'habitat'
+    # Number of patches where offset ends    
+    SimSummary$n_offsetend <- n_offset_end
+    SimSummary$nall_habitat[tstep] <- length(which(SimPatch$state_sim=="habitat"))
+    # Number of patches characterized as 'marginal'
+    SimSummary$nall_marginal[tstep] <- length(which(SimPatch$state_sim=="marginal"))
+    # Number of patches characterized as 'impact'
+    SimSummary$nall_impact[tstep] <- length(which(SimPatch$state_sim=="impact"))
+    # Number of patches characterized as 'offset'
+    SimSummary$nall_offset[tstep] <- length(which(SimPatch$state_sim=="offset"))  
+    # Measure of 'initial' impact (counts only initial value of impact plot)   
+    SimSummary$impact_init[tstep] <- sum(SimPatch$impact_init)     
+    # Measure of 'cumulative' impact over time (counts continuous-time of loss on impact plot)
+    SimSummary$impact_cum[tstep] <- sum(SimPatch$impact_cum) 
+    # Measure of 'cumulative' offset value over time (counts continuous-time offset gain)
+    SimSummary$offset_cum[tstep] <- sum(SimPatch$offset_cum)  
+    SimSummary$ nall_intact50[tstep] <- length(which(SimPatch$AgeMean>=50))     
+    
+    # Number of patches occupied by dispersing species SpPersCol 
+    SimSummary$nall_SpPersCol[tstep] <- sum(OccPatch_SpPersCol$Occ)
+    # Number of patches occupied by dispersing species SpSuccSpec 
+    SimSummary$nall_SpSuccSpec[tstep] <- sum(OccPatch_SpSuccSpec$Occ)
+  }
+  
+  # Summary stats
+  SummaryStatsGlobal$NpatchProtected[sim] <- length(which(Patch_attrib$state_inital=="protected"))
+  SummaryStatsGlobal$Intactness_t1[sim] <- round(SimSummary$age.index_total[1], 2)
+  SummaryStatsGlobal$Intactness_t2[sim] <- round(SimSummary$age.index_total[2], 2)
+  SummaryStatsGlobal$Intactness_t5[sim] <- round(SimSummary$age.index_total[5], 2)
+  SummaryStatsGlobal$Intactness_t10[sim] <- round(SimSummary$age.index_total[10], 2)
+  SummaryStatsGlobal$Intactness_t15[sim] <- round(SimSummary$age.index_total[15], 2)
+  SummaryStatsGlobal$Intactness_t20[sim] <- round(SimSummary$age.index_total[20], 2)
+  SummaryStatsGlobal$Intactness_t25[sim] <- round(SimSummary$age.index_total[25], 2)
+  SummaryStatsGlobal$Intactness_t50[sim] <- round(SimSummary$age.index_total[50], 2)
+  SummaryStatsGlobal$Intactness_T[sim] <- round(SimSummary$age.index_total[T],2)
+  SummaryStatsGlobal$Intactness_CV[sim] <- sd(SimSummary$age.index_total) / mean(SimSummary$age.index_total)
+  SummaryStatsGlobal$Intactness_maxtime[sim] <- which.max(SimSummary$age.index_total)
+  SummaryStatsGlobal$Intactness_mintime[sim] <- which.min(SimSummary$age.index_total)
+  SummaryStatsGlobal$Intactness_maxval[sim] <- round(max(SimSummary$age.index_total), 2)
+  SummaryStatsGlobal$Intactness_minval[sim] <- round(min(SimSummary$age.index_total), 2)
+  
+  SummaryStatsGlobal$marginalExhaustTime[sim] <- ifelse(min(SimSummary$nall_marginal)==0, min(which(SimSummary$nall_marginal==0)), T*2)
+  SummaryStatsGlobal$NImpactMax[sim] <- max(SimSummary$nall_impact)
+  SummaryStatsGlobal$NImpactMean[sim] <- mean(SimSummary$nall_impact)
+  SummaryStatsGlobal$NOffsetMax[sim] <- max(SimSummary$nall_offset)      
+
+  SummaryStatsGlobal$IntactnessHabitat_t50[sim] <- round(SimSummary$age.index_habitat[50], 2)
+  SummaryStatsGlobal$IntactnessOffset_t50[sim] <- round(SimSummary$age.index_offset[50], 2)
+  SummaryStatsGlobal$IntactnessHabitat_T[sim] <- round(SimSummary$age.index_habitat[T], 2)
+  SummaryStatsGlobal$IntactnessOffset_T[sim] <- round(SimSummary$age.index_offset[T], 2)  
+  
+  SummaryStatsGlobal$npatch_age50_t1[sim] <- SimSummary$nall_intact50[1]
+  SummaryStatsGlobal$npatch_age50_t2[sim] <- SimSummary$nall_intact50[2]
+  SummaryStatsGlobal$npatch_age50_t5[sim] <- SimSummary$nall_intact50[5]
+  SummaryStatsGlobal$npatch_age50_t10[sim] <- SimSummary$nall_intact50[10]
+  SummaryStatsGlobal$npatch_age50_t15[sim] <- SimSummary$nall_intact50[15]
+  SummaryStatsGlobal$npatch_age50_t20[sim] <- SimSummary$nall_intact50[20]
+  SummaryStatsGlobal$npatch_age50_t25[sim] <- SimSummary$nall_intact50[25]
+  SummaryStatsGlobal$npatch_age50_t50[sim] <- SimSummary$nall_intact50[50]
+  SummaryStatsGlobal$npatch_age50_T[sim] <- SimSummary$nall_intact50[T]
+  
+  SummaryStatsGlobal$npatch_age50_maxtime[sim] <- which.max(SimSummary$nall_intact50)
+  SummaryStatsGlobal$npatch_age50_mintime[sim] <- which.min(SimSummary$nall_intact50)
+  SummaryStatsGlobal$npatch_age50_maxval[sim] <- max(SimSummary$nall_intact50)
+  SummaryStatsGlobal$npatch_age50_minval[sim] <- min(SimSummary$nall_intact50)   
+  
+  SummaryStatsGlobal$SpPersCol_t1[sim] <- SimSummary$nall_SpPersCol[1]
+  SummaryStatsGlobal$SpPersCol_t2[sim] <- SimSummary$nall_SpPersCol[2]
+  SummaryStatsGlobal$SpPersCol_t5[sim] <- SimSummary$nall_SpPersCol[5]
+  SummaryStatsGlobal$SpPersCol_t10[sim] <- SimSummary$nall_SpPersCol[10]
+  SummaryStatsGlobal$SpPersCol_t15[sim] <- SimSummary$nall_SpPersCol[15]
+  SummaryStatsGlobal$SpPersCol_t20[sim] <- SimSummary$nall_SpPersCol[20]
+  SummaryStatsGlobal$SpPersCol_t25[sim] <- SimSummary$nall_SpPersCol[25]
+  SummaryStatsGlobal$SpPersCol_t50[sim] <- SimSummary$nall_SpPersCol[50]
+  SummaryStatsGlobal$SpPersCol_T[sim] <- SimSummary$nall_SpPersCol[T]
+  SummaryStatsGlobal$SpPersCol_CV[sim] <- sd(SimSummary$nall_SpPersCol) / mean(SimSummary$nall_SpPersCol)
+  SummaryStatsGlobal$SpPersCol_maxtime[sim] <- which.max(SimSummary$nall_SpPersCol)
+  SummaryStatsGlobal$SpPersCol_mintime[sim] <- which.min(SimSummary$nall_SpPersCol)
+  SummaryStatsGlobal$SpPersCol_maxval[sim] <- max(SimSummary$nall_SpPersCol)
+  SummaryStatsGlobal$SpPersCol_minval[sim] <- min(SimSummary$nall_SpPersCol)
+  
+  SummaryStatsGlobal$SpSuccSpec_t1[sim] <- SimSummary$nall_SpSuccSpec[1]
+  SummaryStatsGlobal$SpSuccSpec_t2[sim] <- SimSummary$nall_SpSuccSpec[2]
+  SummaryStatsGlobal$SpSuccSpec_t5[sim] <- SimSummary$nall_SpSuccSpec[5]
+  SummaryStatsGlobal$SpSuccSpec_t10[sim] <- SimSummary$nall_SpSuccSpec[10]
+  SummaryStatsGlobal$SpSuccSpec_t15[sim] <- SimSummary$nall_SpSuccSpec[15]
+  SummaryStatsGlobal$SpSuccSpec_t20[sim] <- SimSummary$nall_SpSuccSpec[20]
+  SummaryStatsGlobal$SpSuccSpec_t25[sim] <- SimSummary$nall_SpSuccSpec[25]
+  SummaryStatsGlobal$SpSuccSpec_t50[sim] <- SimSummary$nall_SpSuccSpec[50]
+  SummaryStatsGlobal$SpSuccSpec_T[sim] <- SimSummary$nall_SpSuccSpec[T]
+  SummaryStatsGlobal$SpSuccSpec_CV[sim] <- sd(SimSummary$nall_SpSuccSpec) / mean(SimSummary$nall_SpSuccSpec)
+  SummaryStatsGlobal$SpSuccSpec_maxtime[sim] <- which.max(SimSummary$nall_SpSuccSpec)
+  SummaryStatsGlobal$SpSuccSpec_mintime[sim] <- which.min(SimSummary$nall_SpSuccSpec)
+  SummaryStatsGlobal$SpSuccSpec_maxval[sim] <- max(SimSummary$nall_SpSuccSpec)
+  SummaryStatsGlobal$SpSuccSpec_minval[sim] <- min(SimSummary$nall_SpSuccSpec)
+}  
+
+
+
+##########
+# Landscape graph plotting
+
+# Create edges based on distance threshold
+patch_edges <- which(dist_patch <= dispmax, arr.ind = TRUE)
+patch_edges <- patch_edges[patch_edges[,1] < patch_edges[,2], ]  # Keep only unique edges (no reverse duplicates)
+
+graph_patches <- graph_from_edgelist(patch_edges, directed = FALSE)
+
+# Plot the spatial network
+plot_landscape <- plot(graph_patches, 
+     layout = as.matrix(patch_coord),  # Use the spatial coordinates as node positions
+     vertex.size = 5,                  # Size of nodes (patches)
+     vertex.label = NA,                # No labels on nodes
+     vertex.color = c("darkred", "lightgreen",  "darkgreen")[as.numeric(as.factor(Patch_attrib$state_inital))],
+     edge.width = 1,                   # Width of edges
+     main = "Patch landscape")
+legend("topright",                      # Position of the legend
+       legend = state_name,  # Labels
+       fill = c("darkgreen", "lightgreen", "darkred", "steelblue", "orange"),    # Colors
+       title = "Patch types") 
