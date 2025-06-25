@@ -1,0 +1,944 @@
+############################################
+#
+# Simulation output analysis/summary for the study "Optimising biodiversity offsetting to account for habitat succession and species colonisation dynamics"
+#
+############################################
+
+set.seed(1)  
+
+library(igraph)
+library(ggplot2)
+library(ggpubr)
+library(gridExtra)
+library(tidyverse)
+library(RColorBrewer)
+library(viridis)
+library(gbm)
+library(caret)
+
+
+# Use only model scenarios with the perturbation parameter (preliminary analysis only) was pperturb == 0 
+SummaryStatsGlobal <- SummaryStatsGlobal %>% filter(pperturb == 0)  %>% drop_na()
+
+
+# New summary variables: landscape intactness  and n_patch_age50 ratio at different time steps
+SummaryStatsGlobal <- SummaryStatsGlobal %>%
+  mutate(IntactRatio_T = Intactness_T/Intactness_t0) %>%
+  mutate(IntactRatio_t0 = Intactness_t0/Intactness_t0) %>%
+  mutate(IntactRatio_t1 = Intactness_t1/Intactness_t0) %>%
+  mutate(IntactRatio_t2 = Intactness_t2/Intactness_t0) %>%
+  mutate(IntactRatio_t5 = Intactness_t5/Intactness_t0) %>%
+  mutate(IntactRatio_t10 = Intactness_t10/Intactness_t0) %>%
+  mutate(IntactRatio_t15 = Intactness_t15/Intactness_t0) %>%
+  mutate(IntactRatio_t20 = Intactness_t20/Intactness_t0) %>%
+  mutate(IntactRatio_t25 = Intactness_t25/Intactness_t0) %>%  
+  mutate(IntactRatio_t50 = Intactness_t50/Intactness_t0) %>%
+  mutate(Intactness_protect = NpatchProtected*200/M) %>%  
+  mutate(IntactRatio_HabitatMin = (Intactness_minval-Intactness_protect) / (Intactness_t0-Intactness_protect)) %>% 
+  mutate(IntactRatio_Habitat.10years =  (Intactness_t2-Intactness_protect)/(Intactness_t0-Intactness_protect)) %>%
+
+  mutate(Patch50Ratio_t0 = npatch_age50_t0/npatch_age50_t0) %>%
+  mutate(Patch50Ratio_t1 = npatch_age50_t1/npatch_age50_t0) %>%
+  mutate(Patch50Ratio_t2 = npatch_age50_t2/npatch_age50_t0) %>%  
+  mutate(Patch50Ratio_t5 = npatch_age50_t5/npatch_age50_t0) %>%
+  mutate(Patch50Ratio_t10 = npatch_age50_t10/npatch_age50_t0) %>%  
+  mutate(Patch50Ratio_t15 = npatch_age50_t15/npatch_age50_t0) %>%  
+  mutate(Patch50Ratio_t20 = npatch_age50_t20/npatch_age50_t0) %>%
+  mutate(Patch50Ratio_t25 = npatch_age50_t25/npatch_age50_t0) %>%  
+  mutate(Patch50Ratio_t50 = npatch_age50_t50/npatch_age50_t0) %>%
+  mutate(Patch50Ratio_T = npatch_age50_T/npatch_age50_t0) %>%
+
+  mutate(Patch50Ratio_minval = npatch_age50_minval/npatch_age50_t0) %>%
+  mutate(Patch50Ratio_maxval = npatch_age50_maxval/npatch_age50_t0)
+    
+# Variable of the habitat conversion intensity (product of Nimpacted* HIR)
+SummaryStatsGlobal <- SummaryStatsGlobal %>%
+  mutate(HabitatConvert = Nimpacted* HIR/M)
+
+## New summary variables: occurrence ratio of dispersing species
+SummaryStatsGlobal <- SummaryStatsGlobal %>%
+  mutate(SpPersCol_occratio_t0 = SpPersCol_t0/(SpPersCol_t0 + 0000.1)) %>%
+  mutate(SpPersCol_occratio_t1 = SpPersCol_t1/(SpPersCol_t0 + 0000.1)) %>%
+  mutate(SpPersCol_occratio_t2 = SpPersCol_t2/(SpPersCol_t0 + 0000.1)) %>%
+  mutate(SpPersCol_occratio_t5 = SpPersCol_t5/(SpPersCol_t0 + 0000.1)) %>% 
+  mutate(SpPersCol_occratio_t10 = SpPersCol_t10/(SpPersCol_t0 + 0000.1)) %>% 
+  mutate(SpPersCol_occratio_t15 = SpPersCol_t15/(SpPersCol_t0 + 0000.1)) %>% 
+  mutate(SpPersCol_occratio_t20 = SpPersCol_t20/(SpPersCol_t0 + 0000.1)) %>%
+  mutate(SpPersCol_occratio_t25 = SpPersCol_t25/(SpPersCol_t0 + 0000.1)) %>%
+  mutate(SpPersCol_occratio_t50 = SpPersCol_t50/(SpPersCol_t0 + 0000.1)) %>%
+  mutate(SpPersCol_occratio_T = SpPersCol_T/(SpPersCol_t0 + 0000.1)) %>%
+  mutate(SpPersCol_occratio_min = SpPersCol_minval/(SpPersCol_t0 + 0000.1)) %>%  
+  
+  mutate(SpSuccSpec_occratio_t0 = SpSuccSpec_t0/(SpSuccSpec_t0 + 0000.1)) %>%
+  mutate(SpSuccSpec_occratio_t1 = SpSuccSpec_t1/(SpSuccSpec_t0 + 0000.1)) %>%
+  mutate(SpSuccSpec_occratio_t2 = SpSuccSpec_t2/(SpSuccSpec_t0 + 0000.1)) %>%
+  mutate(SpSuccSpec_occratio_t5 = SpSuccSpec_t5/(SpSuccSpec_t0 + 0000.1)) %>%
+  mutate(SpSuccSpec_occratio_t10 = SpSuccSpec_t10/(SpSuccSpec_t0 + 0000.1)) %>%
+  mutate(SpSuccSpec_occratio_t15 = SpSuccSpec_t15/(SpSuccSpec_t0 + 0000.1)) %>%
+  mutate(SpSuccSpec_occratio_t20 = SpSuccSpec_t20/(SpSuccSpec_t0 + 0000.1)) %>%
+  mutate(SpSuccSpec_occratio_t25 = SpSuccSpec_t25/(SpSuccSpec_t0 + 0000.1)) %>%
+  mutate(SpSuccSpec_occratio_t50 = SpSuccSpec_t50/(SpSuccSpec_t0 + 0000.1)) %>%
+  mutate(SpSuccSpec_occratio_T = SpSuccSpec_T/(SpSuccSpec_t0 + 0000.1)) %>%  
+  mutate(SpSuccSpec_occratio_min = SpSuccSpec_minval/(SpSuccSpec_t0 + 0000.1)) 
+
+
+##################
+# Define and explore landscape intactness and patch50 targets targets
+
+SummaryStatsGlobal <- SummaryStatsGlobal %>%
+  # Target_NNL intact: no net loss of intactness at any time
+  mutate(target_NNL_intact = ifelse(Intactness_t5 >= Intactness_t0  & Intactness_t20 >= Intactness_t0 & Intactness_T >= Intactness_t0, 1,0)) %>%  
+  # Target 95% habitat intactness
+  mutate(target_intact_habitat95 = ifelse(IntactRatio_HabitatMin >= 0.95, 1,0)) %>%
+  # Target 95% habitat intactness short-term after 10 years
+  mutate(target_intact_habitat95_shortterm = ifelse(IntactRatio_Habitat.10years >= 0.95, 1,0))
+
+table(SummaryStatsGlobal$target_NNL_intact); round(mean(SummaryStatsGlobal$target_NNL_intact, na.rm=TRUE), 2)
+table(SummaryStatsGlobal$target_intact_habitat95); round(mean(SummaryStatsGlobal$target_intact_habitat95, na.rm=TRUE), 2)
+table(SummaryStatsGlobal$target_intact_habitat95_shortterm); round(mean(SummaryStatsGlobal$target_intact_habitat95_shortterm, na.rm=TRUE), 2)
+
+SummaryStatsGlobal <- SummaryStatsGlobal %>%
+      mutate(target_patch50_95 = ifelse(Patch50Ratio_minval >= 0.95, 1,0)) %>%
+      mutate(target_patch50_recov = ifelse(Patch50Ratio_minval >= 0.5 & Patch50Ratio_T >= 1, 1,0)) %>%
+      mutate(target_patch50_95_shortterm = ifelse(Patch50Ratio_t2 >= 0.95 & Patch50Ratio_t5 >= 0.95 &Patch50Ratio_t10 >= 0.95, 1,0))
+
+table(SummaryStatsGlobal$target_patch50_95); round(mean(SummaryStatsGlobal$target_patch50_95, na.rm=TRUE), 2)
+table(SummaryStatsGlobal$target_patch50_recov); round(mean(SummaryStatsGlobal$target_patch50_recov, na.rm=TRUE), 2)
+table(SummaryStatsGlobal$target_patch50_95_shortterm); round(mean(SummaryStatsGlobal$target_patch50_95_shortterm, na.rm=TRUE), 2)
+
+
+# Long term failure of scenarios that meet taget short-term:
+length(which(SummaryStatsGlobal$target_intact_habitat95_shortterm==1 & SummaryStatsGlobal$target_intact_habitat95==0))/ length(which(SummaryStatsGlobal$target_intact_habitat95_shortterm==1 ))
+length(which(SummaryStatsGlobal$target_patch50_95_shortterm==1 & SummaryStatsGlobal$target_patch50_95==0))/ length(which(SummaryStatsGlobal$target_patch50_95_shortterm==1 ))
+
+
+#####
+## target_NNL_intact Sensitivity analysis
+Dat_GBM <- drop_na(SummaryStatsGlobal)
+
+GBM_NNL_intact <- gbm(target_NNL_intact ~ HCF + CCP + IP + Nimpacted + HIR +
+                       minagehab + dispmax + occext + pProtect + HabitatConvert, data = Dat_GBM, distribution = "bernoulli", 
+                     n.trees = 1000, interaction.depth = 6, shrinkage = 0.01, cv.folds = 5, verbose = FALSE)
+summary(GBM_NNL_intact)
+
+##  target_intact_habitat95 Sensitivity analysis
+GBM_intact95 <- gbm(target_intact_habitat95 ~ HCF + CCP + IP + Nimpacted + HIR +
+                      minagehab + dispmax + occext + pProtect + HabitatConvert, data = Dat_GBM, distribution = "bernoulli", 
+                    n.trees = 1000, interaction.depth = 6, shrinkage = 0.01, cv.folds = 5, verbose = FALSE)
+summary(GBM_intact95)
+
+
+## patch50_95 Sensitivity analysis
+GBM_patch50_95 <- gbm(target_patch50_95 ~ HCF + CCP + IP + Nimpacted + HIR +
+                      minagehab + dispmax + occext + pProtect + HabitatConvert, data = Dat_GBM, distribution = "bernoulli", 
+                    n.trees = 1000, interaction.depth = 6, shrinkage = 0.01, cv.folds = 5, verbose = FALSE)
+summary(GBM_patch50_95)
+
+## patch50_recov Sensitivity analysis
+GBM_patch50_recov <- gbm(target_patch50_recov ~ HCF + CCP + IP + Nimpacted + HIR +
+                        minagehab + dispmax + occext + pProtect + HabitatConvert, data = Dat_GBM, distribution = "bernoulli", 
+                      n.trees = 1000, interaction.depth = 6, shrinkage = 0.01, cv.folds = 5, verbose = FALSE)
+summary(GBM_patch50_recov)
+
+
+# Partial dependence plots
+plot_PartDepend_GBM_intact95_HabitatConvert <- 
+     as_tibble(plot(GBM_intact95, i.var = "HabitatConvert", return.grid = TRUE, type = "response")) %>%
+     ggplot(aes(x = HabitatConvert, y = y)) +
+  geom_line(color = "blue", linewidth = 1.5) +
+  labs(title = NULL, x = "Habitat conversion rate", y = "Predicted partial dependence") + theme_minimal()  +
+  theme(plot.title = element_text(hjust = 0.5), axis.title = element_text(size = 10), axis.text = element_text(size = 8), axis.line = element_line(color = "black", size = 0.5)) 
+plot_PartDepend_GBM_intact95_hcf <- 
+  as_tibble(plot(GBM_intact95, i.var = "HCF", return.grid = TRUE, type = "response")) %>%
+  ggplot(aes(x = HCF, y = y)) +
+  geom_line(color = "blue", linewidth = 1.5) +
+  labs(title = NULL, x = "Habitat compensation factor", y = NULL) + theme_minimal()  +
+  theme(plot.title = element_text(hjust = 0.5), axis.title = element_text(size = 10), axis.text = element_text(size = 8), axis.line = element_line(color = "black", size = 0.5)) 
+plot_PartDepend_GBM_intact95_CCP <- 
+  as_tibble(plot(GBM_intact95, i.var = "CCP", return.grid = TRUE, type = "response")) %>%
+  ggplot(aes(x = CCP*tyears, y = y)) +
+  geom_line(color = "blue", linewidth = 1.5) +
+  labs(title = NULL, x = "Conservation committment period", y = NULL) + theme_minimal()  +
+  theme(plot.title = element_text(hjust = 0.5), axis.title = element_text(size = 10), axis.text = element_text(size = 8), axis.line = element_line(color = "black", size = 0.5)) 
+
+plot_PartDepend_GBM_intact95 <- ggarrange(plot_PartDepend_GBM_intact95_HabitatConvert, plot_PartDepend_GBM_intact95_hcf, plot_PartDepend_GBM_intact95_CCP, ncol = 3, nrow = 1) %>%
+  annotate_figure(top = text_grob("GBM: '95% habitat quality' target", size = 14, face = "bold"))
+
+plot_PartDepend_GBM_patch50_95_HabitatConvert <- 
+  as_tibble(plot(GBM_patch50_95, i.var = "HabitatConvert", return.grid = TRUE, type = "response")) %>%
+  ggplot(aes(x = HabitatConvert, y = y)) +
+  geom_line(color = "steelblue", size = 1.5) +
+  labs(title = NULL, x = "Habitat conversion rate", y = "Predicted partial dependence") + theme_minimal()  +
+  theme(plot.title = element_text(hjust = 0.5), axis.title = element_text(size = 10), axis.text = element_text(size = 10), axis.line = element_line(color = "black", size = 0.5)) 
+plot_PartDepend_GBM_patch50_95_hcf <- 
+  as_tibble(plot(GBM_patch50_95, i.var = "HCF", return.grid = TRUE, type = "response")) %>%
+  ggplot(aes(x = HCF, y = y)) +
+  geom_line(color = "steelblue", size = 1.5) +
+  labs(title = NULL, x = "Habitat compensation factor", y = NULL) + theme_minimal()  +
+  theme(plot.title = element_text(hjust = 0.5), axis.title = element_text(size = 10), axis.text = element_text(size = 10), axis.line = element_line(color = "black", size = 0.5)) 
+plot_PartDepend_GBM_patch50_95_CCP <- 
+  as_tibble(plot(GBM_patch50_95, i.var = "CCP", return.grid = TRUE, type = "response")) %>%
+  ggplot(aes(x = CCP*tyears, y = y)) +
+  geom_line(color = "steelblue", size = 1.5) +
+  labs(title = NULL, x = "Conservation committment period", y = NULL) + theme_minimal()  +
+  theme(plot.title = element_text(hjust = 0.5), axis.title = element_text(size = 10), axis.text = element_text(size = 10), axis.line = element_line(color = "black", size = 0.5)) 
+
+plot_PartDependGBM_patch50 <- ggarrange(plot_PartDepend_GBM_patch50_95_HabitatConvert, plot_PartDepend_GBM_patch50_95_hcf, plot_PartDepend_GBM_patch50_95_CCP, ncol = 3, nrow = 1) %>%
+  annotate_figure(top = text_grob("GBM: 95% mature patches target", size = 14, face = "bold"))
+
+
+plot_PartDepend_GBM_patch50_recov_HabitatConvert <- 
+  as_tibble(plot(GBM_patch50_recov, i.var = "HabitatConvert", return.grid = TRUE, type = "response")) %>%
+  ggplot(aes(x = HabitatConvert, y = y)) +
+  geom_line(color = "royalblue", size = 1.5) +
+  labs(title = NULL, x = "Habitat conversion rate", y = "Predicted partial dependence") + theme_minimal()  +
+  theme(plot.title = element_text(hjust = 0.5), axis.title = element_text(size = 10), axis.text = element_text(size = 10), axis.line = element_line(color = "black", size = 0.5)) 
+plot_PartDepend_GBM_patch50_recov_hcf <- 
+  as_tibble(plot(GBM_patch50_recov, i.var = "HCF", return.grid = TRUE, type = "response")) %>%
+  ggplot(aes(x = HCF, y = y)) +
+  geom_line(color = "royalblue", size = 1.5) +
+  labs(title = NULL, x = "Habitat compensation factor", y = NULL) + theme_minimal()  +
+  theme(plot.title = element_text(hjust = 0.5), axis.title = element_text(size = 10), axis.text = element_text(size = 10), axis.line = element_line(color = "black", size = 0.5)) 
+plot_PartDepend_GBM_patch50_recov_CCP <- 
+  as_tibble(plot(GBM_patch50_recov, i.var = "CCP", return.grid = TRUE, type = "response")) %>%
+  ggplot(aes(x = CCP*tyears, y = y)) +
+  geom_line(color = "royalblue", size = 1.5) +
+  labs(title = NULL, x = "Conservation committment period", y = NULL) + theme_minimal()  +
+  theme(plot.title = element_text(hjust = 0.5), axis.title = element_text(size = 10), axis.text = element_text(size = 10), axis.line = element_line(color = "black", size = 0.5)) 
+
+plot_PartDependGBM_patchrecov <- ggarrange(plot_PartDepend_GBM_patch50_recov_HabitatConvert, plot_PartDepend_GBM_patch50_recov_hcf, plot_PartDepend_GBM_patch50_recov_CCP, ncol = 3, nrow = 1) %>%
+  annotate_figure(top = text_grob("GBM: Mature patch recover target", size = 14, face = "bold"))
+
+
+
+#######
+# Constraints to reach NNL_intact target
+
+# Minimum required habitat compensation factor (hcf) to achieve NNL intactness target
+hcf.min_NNLintact <- min(sort(SummaryStatsGlobal$HCF[which(SummaryStatsGlobal$target_NNL_intact==1 &  SummaryStatsGlobal$HIR==1)]))
+hcf.min_NNLintact
+
+# Maximum habitat impact ratio (hir) to achieve NNL intactness target target IF  < hcf.min_NNLintact
+hir.min_hcf.min_NNLintact <- max(sort(SummaryStatsGlobal$HIR[which(SummaryStatsGlobal$target_NNL_intact==1 & SummaryStatsGlobal$HCF <= hcf.min_NNLintact)]))  
+hir.min_hcf.min_NNLintact
+
+# Minimum required compensation factor to achieve NNL intactness target for 10 years only
+hcf.min_habiatintact95_10years <-  min(SummaryStatsGlobal$HCF[which(SummaryStatsGlobal$IntactRatio_t2>=1 & SummaryStatsGlobal$HIR==1)])
+hcf.min_habiatintact95_10years
+
+#######
+# Constraints to reach 95% habitat intactness target
+
+# Minimum required habitat compensation factor (hcf) to achieve 95% habitat intactness target
+hcf.min_habiatintact95 <- min(sort(SummaryStatsGlobal$HCF[which(SummaryStatsGlobal$target_intact_habitat95==1 &  SummaryStatsGlobal$HIR==1)]))
+hcf.min_habiatintact95
+
+# Minimum required conservation commitment period (CCP) to achieve 95% habitat intactness target IF hcf.min_habiatintact95
+CCP.min_hcf.min_habiatintact95 <- tyears * min(sort(SummaryStatsGlobal$CCP[which(SummaryStatsGlobal$target_intact_habitat95==1 & SummaryStatsGlobal$HIR==1 &
+                                                                            SummaryStatsGlobal$HCF<= hcf.min_habiatintact95)]))
+CCP.min_hcf.min_habiatintact95
+
+HabitatConvert.max_hcf.min_habiatintact95 <- max(sort(SummaryStatsGlobal$HabitatConvert[which(SummaryStatsGlobal$target_intact_habitat95==1 & SummaryStatsGlobal$HIR==1 &
+                                                    SummaryStatsGlobal$HCF<= hcf.min_habiatintact95)]))
+
+
+hcf.required_10foldHabitatConvert_habiatintact95 <- min(sort(SummaryStatsGlobal$HCF[which(SummaryStatsGlobal$target_intact_habitat95==1 &  SummaryStatsGlobal$HabitatConvert>=HabitatConvert.max_hcf.min_habiatintact95*10)]))
+hcf.required_10foldHabitatConvert_habiatintact95
+
+
+# Maximum habitat impact ratio (hir) to achieve 95% habitat intactness target IF <= hcf.min_habiatintact95
+hir.max_hcf.min_habiatintact95 <- max(sort(SummaryStatsGlobal$HIR[which(SummaryStatsGlobal$target_intact_habitat95 ==1 & SummaryStatsGlobal$HCF <= hcf.min_habiatintact95)]))  
+hir.max_hcf.min_habiatintact95
+
+
+#######
+# Constraints to reach 95% mature patch target
+
+# Maximum habitat conversion rate to achieve 95% habitat intactness target
+HabitatConvert.max_patch50_95 <- max(sort(SummaryStatsGlobal$HabitatConvert[which(SummaryStatsGlobal$target_patch50_95==1)]))
+HabitatConvert.max_patch50_95
+
+# Minimum required CCP to achieve 95% habitat intactness target
+CCP.min_patch50_95 <- tyears * min(sort(SummaryStatsGlobal$CCP[which(SummaryStatsGlobal$target_patch50_95==1 & SummaryStatsGlobal$HIR==1)]))
+CCP.min_patch50_95
+
+hcf.min_patch50_95 <- min(sort(SummaryStatsGlobal$HCF[which(SummaryStatsGlobal$target_patch50_95==1 & SummaryStatsGlobal$HIR==1)]))
+hcf.min_patch50_95
+
+CCP.min_patch50_recov <- tyears * min(sort(SummaryStatsGlobal$CCP[which(SummaryStatsGlobal$target_patch50_recov==1 & SummaryStatsGlobal$HIR==1)]))
+CCP.min_patch50_recov
+
+hcf.min_patch50_recov <-  min(sort(SummaryStatsGlobal$HCF[which(SummaryStatsGlobal$target_patch50_recov==1 & SummaryStatsGlobal$HIR==1)]))
+hcf.min_patch50_recov
+
+
+#######
+## PloT time series of intactness and mature patch ratios
+Dat_Intact_series <- SummaryStatsGlobal %>% dplyr::select(IntactRatio_t0, IntactRatio_t1, IntactRatio_t2, IntactRatio_t5, IntactRatio_t10, 
+                                                          IntactRatio_t15, IntactRatio_t20, IntactRatio_t25, IntactRatio_t50, IntactRatio_T,
+                                                          HCF, CCP) %>%
+  mutate (SimNo = paste0("sim_", SimNo = 1:dim(SummaryStatsGlobal)[1])) %>%
+  na.omit()
+Dat_Intact_series <- Dat_Intact_series[1:1000,]
+
+Dat_Intact_series_long <- Dat_Intact_series %>% dplyr::select(!c(HCF, CCP)) %>% 
+  pivot_longer(!SimNo, names_to = "Time", values_to = "IntactRatio")
+Dat_Intact_series_long <- left_join(Dat_Intact_series_long, Dat_Intact_series[, c("SimNo", "HCF", "CCP")], by = "SimNo") %>%
+  mutate(year = str_replace_all(Time, "IntactRatio_t0", "0")) %>%
+  mutate(year = str_replace_all(year, "IntactRatio_t1", "5")) %>%
+  mutate(year = str_replace_all(year, "IntactRatio_t2", "10")) %>%
+  mutate(year = str_replace_all(year, "IntactRatio_t5", "25")) %>%
+  mutate(year = str_replace_all(year, "IntactRatio_t10", "50")) %>% 
+  mutate(year = str_replace_all(year, "IntactRatio_t15", "75")) %>% 
+  mutate(year = str_replace_all(year, "IntactRatio_t20", "100")) %>% 
+  mutate(year = str_replace_all(year, "IntactRatio_t25", "125")) %>% 
+  mutate(year = str_replace_all(year, "IntactRatio_t50", "250")) %>%   
+  mutate(year = str_replace_all(year, "IntactRatio_T", "500")) %>% 
+  mutate(year = as.numeric(year))  
+
+Dat_Patch50_series <- SummaryStatsGlobal %>% dplyr::select(Patch50Ratio_t0, Patch50Ratio_t1, Patch50Ratio_t2, Patch50Ratio_t5, Patch50Ratio_t10, 
+                                                           Patch50Ratio_t15, Patch50Ratio_t20, Patch50Ratio_t25, Patch50Ratio_t50, Patch50Ratio_T,
+                                                           HCF, CCP) %>%
+  mutate (SimNo = paste0("sim_", SimNo = 1:dim(SummaryStatsGlobal)[1])) %>%
+  na.omit()
+Dat_Patch50_series <- Dat_Patch50_series[1:1000,]
+
+Dat_Patch50_series_long <- Dat_Patch50_series %>% dplyr::select(!c(HCF, CCP)) %>% 
+  pivot_longer(!SimNo, names_to = "Time", values_to = "Patch50Ratio")
+Dat_Patch50_series_long <- left_join(Dat_Patch50_series_long, Dat_Patch50_series[, c("SimNo", "HCF", "CCP")], by = "SimNo") %>%
+  mutate(year = str_replace_all(Time, "Patch50Ratio_t0", "0")) %>%
+  mutate(year = str_replace_all(year, "Patch50Ratio_t1", "5")) %>%
+  mutate(year = str_replace_all(year, "Patch50Ratio_t2", "10")) %>%
+  mutate(year = str_replace_all(year, "Patch50Ratio_t5", "25")) %>%
+  mutate(year = str_replace_all(year, "Patch50Ratio_t10", "50")) %>% 
+  mutate(year = str_replace_all(year, "Patch50Ratio_t15", "75")) %>% 
+  mutate(year = str_replace_all(year, "Patch50Ratio_t20", "100")) %>% 
+  mutate(year = str_replace_all(year, "Patch50Ratio_t25", "125")) %>% 
+  mutate(year = str_replace_all(year, "Patch50Ratio_t50", "250")) %>%   
+  mutate(year = str_replace_all(year, "Patch50Ratio_T", "500")) %>% 
+  mutate(year = as.numeric(year))
+
+plot_IntactSeries_hcf <- function(){
+  x_range <- diff(range(Dat_Intact_series_long$year))
+  y_range <- diff(range(Dat_Intact_series_long$IntactRatio))
+  ratio_val <- x_range / y_range
+  
+  ggplot(Dat_Intact_series_long, aes(x = year, y = IntactRatio, color = HCF, group = SimNo)) + 
+  geom_line() +  
+  geom_hline(yintercept=1, col='grey50', lty= 3, lwd = 1) + 
+  scale_colour_viridis_c(option="turbo", direction =-1) + 
+  coord_fixed(ratio = ratio_val) +
+  theme_bw() +
+  labs(x= "Time [years]", y = "Quality ratio", color="Compensation factor") +
+  theme(axis.text.x = element_text(size = 11), axis.text.y = element_text(size = 11), axis.title.x = element_text(size = 14), 
+        axis.title.y = element_text(size = 14), strip.text.x = element_text(size = 14), legend.position='bottom')  
+}
+
+
+plot_Patch50Series_CCP <- function(){
+  x_range <- diff(range(Dat_Patch50_series_long$year))
+  y_range <- diff(range(Dat_Patch50_series_long$Patch50Ratio))
+  ratio_val <- x_range / y_range
+  
+  ggplot(Dat_Patch50_series_long, aes(x = year, y = Patch50Ratio, color = CCP*tyears, group = SimNo)) + 
+  geom_line() +  
+  geom_hline(yintercept=1, col='grey50', lty= 3, lwd = 1) + 
+  scale_colour_viridis_c(option="A", direction =-1) + 
+  #scale_color_brewer(palette="Spectral") +
+  coord_fixed(ratio = ratio_val) +
+  theme_bw() +
+  labs(x= "Time [years]", y = "Mature patch ratio", color="Conservation commitment period") +
+  theme(axis.text.x = element_text(size = 11), axis.text.y = element_text(size = 11), axis.title.x = element_text(size = 14), 
+        axis.title.y = element_text(size = 14), strip.text.x = element_text(size = 14), legend.position='bottom')  
+}
+plot_Patch50Series_CCP()
+
+plot_IntactMatureness_series <- ggarrange(plot_IntactSeries_hcf(), plot_Patch50Series_CCP() , ncol=2)
+plot_IntactMatureness_series
+
+
+
+####################
+## Plot of time series for aggregated data
+
+Dat_IntactSeries_aggregate_hcf <- Dat_Intact_series_long %>% dplyr::select(IntactRatio, HCF, year) %>%
+  group_by(HCF, year) %>%
+  summarise(IntactRatio_mean = mean(IntactRatio, na.rm = TRUE),
+            IntactRatio_median = median(IntactRatio, na.rm = TRUE),
+            IntactRatio_CIlow = mean(IntactRatio) - 1.96 * sd(IntactRatio),
+            IntactRatio_CIup = mean(IntactRatio) + 1.96 * sd(IntactRatio),
+            IntactRatio_SDlow = mean(IntactRatio) - 1 * sd(IntactRatio),
+            IntactRatio_SDup = mean(IntactRatio) + 1* sd(IntactRatio),
+            IntactRatio_Qlow = quantile(IntactRatio, probs = c(0.025)),
+            IntactRatio_Qup = quantile(IntactRatio, probs = c(0.975)),
+            .groups = "drop")
+
+Dat_Patch50_series_ccp <- Dat_Patch50_series_long %>% dplyr::select(Patch50Ratio, CCP, year) %>%
+  group_by(CCP, year) %>%
+  summarise(Patch50_mean = mean(Patch50Ratio, na.rm = TRUE),
+            Patch50_median = median(Patch50Ratio, na.rm = TRUE),
+            Patch50_CIlow = mean(Patch50Ratio) - 1.96 * sd(Patch50Ratio),
+            Patch50_CIup = mean(Patch50Ratio) + 1.96 * sd(Patch50Ratio),
+            Patch50_SDlow = mean(Patch50Ratio) - 1 * sd(Patch50Ratio),
+            Patch50_SDup = mean(Patch50Ratio) + 1* sd(Patch50Ratio),
+            Patch50_Qlow = quantile(Patch50Ratio, probs = c(0.025)),
+            Patch50_Qup = quantile(Patch50Ratio, probs = c(0.975)),
+            .groups = "drop")  
+
+
+plot_IntactSeriesAggr_hcf <- function(){
+  x_range <- diff(range(Dat_IntactSeries_aggregate_hcf$year))
+  y_range <- diff(range(Dat_IntactSeries_aggregate_hcf$IntactRatio_median, Dat_IntactSeries_aggregate_hcf$IntactRatio_Qup, Dat_IntactSeries_aggregate_hcf$IntactRatio_Qlow))
+  ratio_val <- x_range / y_range
+  
+  ggplot(Dat_IntactSeries_aggregate_hcf, 
+         aes(x = year, y = IntactRatio_median, group = HCF, color = HCF, fill = HCF)) +
+  geom_ribbon(aes(ymin = IntactRatio_Qlow, ymax = IntactRatio_Qup), 
+              alpha = 0.2, color = NA) +  # No ribbon outline
+  geom_line(size = 1) +  # Line in same color as fill
+  scale_color_viridis_c(option = "turbo", direction = -1,
+                        guide = guide_colorbar(barwidth = 12, barheight = 1, title.position = "top", title.hjust = 0.5)) +
+  scale_fill_viridis_c(option = "turbo", direction = -1, guide = "none") +
+  coord_fixed(ratio = ratio_val) +
+  theme_bw() +
+  ##guides(color = guide_legend(nrow = 3), fill = "none") +
+  labs(x= "Time [years]", y = "Intactness ratio", color="Compensation factor") +
+  theme(axis.text.x = element_text(size = 11), axis.text.y = element_text(size = 11), axis.title.x = element_text(size = 14), 
+        axis.title.y = element_text(size = 14), strip.text.x = element_text(size = 14), legend.position='bottom')
+}
+plot_IntactSeriesAggr_hcf()
+
+plot_Patch50SeriesAggr_ccp <- function(){
+  x_range <- diff(range(Dat_Patch50_series_ccp$year))
+  y_range <- diff(range(Dat_Patch50_series_ccp$Patch50_median, 
+                        Dat_Patch50_series_ccp$Patch50_Qup, 
+                        Dat_Patch50_series_ccp$Patch50_Qlow))
+  ratio_val <- x_range / y_range
+  
+  # Define legend breaks
+  unique_vals <- sort(unique(Dat_Patch50_series_ccp$CCP))
+  breaks_vals <- unique_vals[round(seq(1, length(unique_vals), length.out = 10))]
+  
+  ggplot(Dat_Patch50_series_ccp, 
+         aes(x = year, y = Patch50_median, group = CCP, color = CCP)) +
+    geom_ribbon(aes(ymin = Patch50_Qlow, ymax = Patch50_Qup, fill = CCP), alpha = 0.2, color = NA) +
+    geom_line(size = 1) +
+    scale_color_viridis_c(option = "A", direction = -1, 
+                          breaks = breaks_vals,
+                          guide = guide_colorbar(barwidth = 12, barheight = 1, title.position = "top", title.hjust = 0.5)) +
+    scale_fill_viridis_c(option = "A", direction = -1, guide = "none") +
+    coord_fixed(ratio = ratio_val) +
+    theme_bw() +
+    labs(x = "Time [years]", 
+         y = "Mature patch ratio", 
+         color = "Conservation commitment period") +
+    theme(axis.text.x = element_text(size = 11), 
+          axis.text.y = element_text(size = 11), 
+          axis.title.x = element_text(size = 14), 
+          axis.title.y = element_text(size = 14), 
+          strip.text.x = element_text(size = 14), 
+          legend.position = 'bottom')  
+}
+plot_Patch50SeriesAggr_ccp()
+
+#### Combined plot
+plot_IntactMatureness_SeriesAggr <- ggarrange(plot_IntactSeriesAggr_hcf() , plot_Patch50SeriesAggr_ccp(), ncol=2, align = "hv")
+
+
+
+##################
+# Define and explore the outcome targets for habitat-dependent coloniser species
+
+SummaryStatsGlobal <- SummaryStatsGlobal %>%
+  # Target Occ100: no decline in occupancy of dispersion species at T
+  mutate(target_SpPersCol_Occ100 = ifelse(SpPersCol_occratio_min >= 1, 1,0)) %>% 
+  mutate(target_SpSuccSpec_Occ100 = ifelse(SpPersCol_occratio_min >= 1, 1,0)) %>%
+      mutate(target_SpSuccSpec_Occ100 = ifelse(minagehab >30, NA,target_SpSuccSpec_Occ100)) %>% 
+  # Target Occ95: no decline in occupancy of dispersion species below 95% of initial values at T
+  mutate(target_SpPersCol_Occ95 = ifelse(SpPersCol_occratio_min >= 0.95, 1,0)) %>% 
+  mutate(target_SpSuccSpec_Occ95 = ifelse(SpSuccSpec_occratio_min >= 0.95, 1,0)) %>%  
+
+  mutate(target_SpPersCol_Occ_recov = ifelse(SpPersCol_occratio_min >= 0.5 & SpPersCol_occratio_T >=1, 1,0)) %>% 
+  mutate(target_SpSuccSpec_Occ_recov = ifelse(SpSuccSpec_occratio_min >= 0.5 & SpSuccSpec_occratio_T >=1, 1,0)) %>%    
+  
+  # Early benefit but long-term decline
+  mutate(benefitearly_SpPersCol_Occ95 = ifelse(SpPersCol_occratio_t2 >= 1 & SpPersCol_occratio_min < 0.5, 1,0)) %>% 
+  mutate(benefitearly_SpSuccSpec_Occ95 = ifelse(SpSuccSpec_occratio_t2 >= 1 & SpSuccSpec_occratio_min < 0.5, 1,0)) %>%
+  mutate(SpPersCol_extinct = ifelse(SpPersCol_occratio_T == 0, 1,0)) %>%
+  mutate(SpSuccSpec_extinct = ifelse(SpSuccSpec_occratio_T == 0, 1,0))
+
+  
+table(SummaryStatsGlobal$target_SpPersCol_Occ95); round(mean(SummaryStatsGlobal$target_SpPersCol_Occ95, na.rm=TRUE), 2)
+table(SummaryStatsGlobal$target_SpSuccSpec_Occ95); round(mean(SummaryStatsGlobal$target_SpSuccSpec_Occ95, na.rm=TRUE), 2)
+
+table(SummaryStatsGlobal$target_SpPersCol_Occ_recov); round(mean(SummaryStatsGlobal$target_SpPersCol_Occ_recov, na.rm=TRUE), 2)
+table(SummaryStatsGlobal$target_SpSuccSpec_Occ_recov); round(mean(SummaryStatsGlobal$target_SpSuccSpec_Occ_recov, na.rm=TRUE), 2)
+
+table(SummaryStatsGlobal$benefitearly_SpPersCol_Occ95); round(mean(SummaryStatsGlobal$benefitearly_SpPersCol_Occ95, na.rm=TRUE), 2)
+table(SummaryStatsGlobal$benefitearly_SpSuccSpec_Occ95); round(mean(SummaryStatsGlobal$benefitearly_SpSuccSpec_Occ95, na.rm=TRUE), 2)
+
+table(SummaryStatsGlobal$SpPersCol_extinct); round(mean(SummaryStatsGlobal$occextinct, na.rm=TRUE), 2)
+table(SummaryStatsGlobal$SpSuccSpec_extinct); round(mean(SummaryStatsGlobal$SpSuccSpec_extinct, na.rm=TRUE), 2)
+
+#####
+## Sensitivity analysis for occupancy of coloniser species
+
+Dat_GBM <- drop_na(SummaryStatsGlobal)
+
+# Sensitivity analysis of coloniser persistence
+GBM_SpPersCol_Occ95 <- gbm(target_SpPersCol_Occ95 ~ HCF + CCP + IP + Nimpacted + HIR +
+                       minagehab + dispmax + occext + pProtect + HabitatConvert, data = Dat_GBM, distribution = "bernoulli", 
+                     n.trees = 1000, interaction.depth = 6, shrinkage = 0.01, cv.folds = 5, verbose = FALSE)
+summary(GBM_SpPersCol_Occ95)
+
+GBM_SpSuccSpec_Occ95 <- gbm(target_SpSuccSpec_Occ95 ~ HCF + CCP + IP + Nimpacted + HIR +
+                       minagehab + dispmax + occext + pProtect + HabitatConvert, data = Dat_GBM, distribution = "bernoulli", 
+                     n.trees = 1000, interaction.depth = 6, shrinkage = 0.01, cv.folds = 5, verbose = FALSE)
+summary(GBM_SpSuccSpec_Occ95)
+
+GBM_SpPersCol_Occ_recov <- gbm(target_SpPersCol_Occ_recov ~ HCF + CCP + IP + Nimpacted + HIR +
+                           minagehab + dispmax + occext + pProtect + HabitatConvert, data = Dat_GBM, distribution = "bernoulli", 
+                         n.trees = 1000, interaction.depth = 6, shrinkage = 0.01, cv.folds = 5, verbose = FALSE)
+summary(GBM_SpPersCol_Occ_recov)
+
+GBM_SpSuccSpec_Occ_recov <- gbm(target_SpSuccSpec_Occ_recov ~ HCF + CCP + IP + Nimpacted + HIR +
+                           minagehab + dispmax + occext + pProtect + HabitatConvert, data = Dat_GBM, distribution = "bernoulli", 
+                         n.trees = 1000, interaction.depth = 6, shrinkage = 0.01, cv.folds = 5, verbose = FALSE)
+summary(GBM_SpSuccSpec_Occ_recov)
+
+
+plot_PartDepend_GBM_SpPersCol_Occ95_HabitatConvert <- 
+  as_tibble(plot(GBM_SpPersCol_Occ95, i.var = "HabitatConvert", return.grid = TRUE, type = "response")) %>%
+  ggplot(aes(x = HabitatConvert, y = y)) +
+  geom_line(color = "deeppink4", size = 1.5) +
+  labs(title = NULL, x = "Habitat conversion rate", y = "Predicted partial dependence") + theme_minimal()  +
+  theme(plot.title = element_text(hjust = 0.5), axis.title = element_text(size = 10), axis.text = element_text(size = 10), axis.line = element_line(color = "black", size = 0.5)) 
+plot_PartDepend_GBM_SpPersCol_Occ95_minagehab <- 
+  as_tibble(plot(GBM_SpPersCol_Occ95, i.var = "minagehab", return.grid = TRUE, type = "response")) %>%
+  ggplot(aes(x = minagehab, y = y)) +
+  geom_line(color = "deeppink4", size = 1.5) +
+  labs(title = NULL, x = "Habitat age threshold", y = NULL) + theme_minimal()  +
+  theme(plot.title = element_text(hjust = 0.5), axis.title = element_text(size = 10), axis.text = element_text(size = 10), axis.line = element_line(color = "black", size = 0.5)) 
+plot_PartDepend_GBM_SpPersCol_Occ95_hcf <- 
+  as_tibble(plot(GBM_SpPersCol_Occ95, i.var = "HCF", return.grid = TRUE, type = "response")) %>%
+  ggplot(aes(x = HCF, y = y)) +
+  geom_line(color = "deeppink4", size = 1.5) +
+  labs(title = NULL, x = "Habitat compensation factor", y = NULL) + theme_minimal()  +
+  theme(plot.title = element_text(hjust = 0.5), axis.title = element_text(size = 10), axis.text = element_text(size = 10), axis.line = element_line(color = "black", size = 0.5)) 
+
+plot_PartDependGBM_SpPersCol_Occ95 <- ggarrange(plot_PartDepend_GBM_SpPersCol_Occ95_HabitatConvert, plot_PartDepend_GBM_SpPersCol_Occ95_minagehab, plot_PartDepend_GBM_SpPersCol_Occ95_hcf, ncol = 3, nrow = 1) %>%
+  annotate_figure(top = text_grob("GBM: '95% metapopulation persistence' for Habitat Generalists target", size = 14, face = "bold"))
+### ggsave(file="plot_PartDependGBM_SpPersCol_Occ95.tiff", plot=plot_PartDependGBM_SpPersCol_Occ95, dpi=300, width = 3.307*2.5, height = 3.307*1, units = 'in')
+
+plot_PartDepend_GBM_SpSuccSpec_Occ95_HabitatConvert <- 
+  as_tibble(plot(GBM_SpSuccSpec_Occ95, i.var = "HabitatConvert", return.grid = TRUE, type = "response")) %>%
+  ggplot(aes(x = HabitatConvert, y = y)) +
+  geom_line(color = "darkorange2", size = 1.5) +
+  labs(title = NULL, x = "Habitat conversion rate", y = "Predicted partial dependence") + theme_minimal()  +
+  theme(plot.title = element_text(hjust = 0.5), axis.title = element_text(size = 10), axis.text = element_text(size = 10), axis.line = element_line(color = "black", size = 0.5)) 
+plot_PartDepend_GBM_SpSuccSpec_Occ95_minagehab <- 
+  as_tibble(plot(GBM_SpSuccSpec_Occ95, i.var = "minagehab", return.grid = TRUE, type = "response")) %>%
+  ggplot(aes(x = minagehab, y = y)) +
+  geom_line(color = "darkorange2", size = 1.5) +
+  labs(title = NULL, x = "Habitat age threshold", y = NULL) + theme_minimal()  +
+  theme(plot.title = element_text(hjust = 0.5), axis.title = element_text(size = 10), axis.text = element_text(size = 10), axis.line = element_line(color = "black", size = 0.5)) 
+plot_PartDepend_GBM_SpSuccSpec_Occ95_CCP <- 
+  as_tibble(plot(GBM_SpSuccSpec_Occ95, i.var = "CCP", return.grid = TRUE, type = "response")) %>%
+  ggplot(aes(x = CCP*tyears, y = y)) +
+  geom_line(color = "darkorange2", size = 1.5) +
+  labs(title = NULL, x = "Conservation comittment period", y = NULL) + theme_minimal()  +
+  theme(plot.title = element_text(hjust = 0.5), axis.title = element_text(size = 10), axis.text = element_text(size = 10), axis.line = element_line(color = "black", size = 0.5)) 
+
+plot_PartDependGBM_SpSuccSpec_Occ95 <- ggarrange(plot_PartDepend_GBM_SpSuccSpec_Occ95_HabitatConvert, plot_PartDepend_GBM_SpSuccSpec_Occ95_minagehab, plot_PartDepend_GBM_SpSuccSpec_Occ95_CCP, ncol = 3, nrow = 1) %>%
+  annotate_figure(top = text_grob("GBM: '95% metapopulation persistence' for Disturbance Specialists target", size = 14, face = "bold"))
+
+
+plot(GBM_SpPersCol_Occ_recov, i = "HCF", main = "Partial Response for CCP")
+plot(GBM_SpSuccSpec_Occ_recov, i = "HCF", main = "Partial Response for CCP")
+
+plot(GBM_SpPersCol_Occ_recov, i = "CCP", main = "Partial Response for CCP")
+plot(GBM_SpSuccSpec_Occ_recov, i = "CCP", main = "Partial Response for CCP")
+
+
+# Constraints in metapopulation persistence of coloniser species
+hcf.min_SpPersCol_occ95 <- min(sort(SummaryStatsGlobal$HCF[which(SummaryStatsGlobal$target_SpPersCol_Occ95==1)]))
+hcf.min_SpPersCol_occ95
+
+hcf.min_SpSuccSpec_occ95 <- min(sort(SummaryStatsGlobal$HCF[which(SummaryStatsGlobal$target_SpSuccSpec_Occ95==1)]))
+hcf.min_SpSuccSpec_occ95
+
+
+# Table of forest min age where metapopulation persistence target is met
+table(SummaryStatsGlobal$minagehab[which(SummaryStatsGlobal$target_SpPersCol_Occ95 ==1)])
+table(SummaryStatsGlobal$minagehab[which(SummaryStatsGlobal$target_SpSuccSpec_Occ95 ==1)])
+
+
+# Proportion of habitat generalist species (SpPersCol) that persisted with high versus low habitat age thresholds
+length(which(SummaryStatsGlobal$target_SpPersCol_Occ95 ==1 & SummaryStatsGlobal$minagehab>=30))/length(which(SummaryStatsGlobal$target_SpPersCol_Occ95 ==1))
+length(which(SummaryStatsGlobal$target_SpPersCol_Occ95 == 1 & SummaryStatsGlobal$minagehab < 30))/length(which(SummaryStatsGlobal$target_SpPersCol_Occ95 ==1))
+
+# Proportion of disturbance specialist species (SpSuccSpec) that persisted with high versus low habitat age thresholds
+length(which(SummaryStatsGlobal$target_SpSuccSpec_Occ95 ==1 & SummaryStatsGlobal$minagehab>=30))/length(which(SummaryStatsGlobal$target_SpSuccSpec_Occ95 ==1))
+length(which(SummaryStatsGlobal$target_SpSuccSpec_Occ95 ==1& SummaryStatsGlobal$minagehab<30))/length(which(SummaryStatsGlobal$target_SpSuccSpec_Occ95 ==1))
+
+
+# Proportion of scenarios where metapopulation species that benefit early and then do not meet the species conservation target
+length(which(SummaryStatsGlobal$benefitearly_SpPersCol_Occ95 ==1)) / length(which(!is.na(SummaryStatsGlobal$benefitearly_SpPersCol_Occ95)))
+length(which(SummaryStatsGlobal$benefitearly_SpSuccSpec_Occ95 ==1)) / length(which(!is.na(SummaryStatsGlobal$benefitearly_SpSuccSpec_Occ95)))
+
+# Habitat age threshold of species that benefit early
+hist(SummaryStatsGlobal$minagehab[which(SummaryStatsGlobal$benefitearly_SpPersCol_Occ95 ==1)])
+hist(SummaryStatsGlobal$minagehab[which(SummaryStatsGlobal$benefitearly_SpSuccSpec_Occ95 ==1)])
+
+
+
+#######
+## PLOT of conditions metapopulation species persistence frequencies
+
+# Data from of key management parameters and intact target outcomes only
+df_target_SpPersCol_occ95 <- drop_na(SummaryStatsGlobal %>% dplyr::select(target_SpPersCol_Occ95, HabitatConvert, minagehab)) %>% 
+  group_by(HabitatConvert, minagehab) %>%
+  summarise(persitence_prop = mean(target_SpPersCol_Occ95, na.rm = TRUE),  
+            .groups = "drop") %>%
+  mutate(species = "Persistent colonisers")
+
+df_target_SpSuccSpec_occ95 <- drop_na(SummaryStatsGlobal %>% dplyr::select(target_SpSuccSpec_Occ95, HabitatConvert, minagehab)) %>% 
+  group_by(HabitatConvert, minagehab) %>%
+  summarise(persitence_prop = mean(target_SpSuccSpec_Occ95, na.rm = TRUE),  
+            .groups = "drop") %>%
+  mutate(species = "Successional specialists")
+
+df_persistence <- rbind(df_target_SpPersCol_occ95, df_target_SpSuccSpec_occ95)
+
+plot_persistence_success <- function(){
+  x_range <- diff(range(df_persistence$HabitatConvert))
+  y_range <- diff(range(df_persistence$minagehab))
+  ratio_val <- x_range / y_range
+  
+  ggplot(df_persistence, aes(x = HabitatConvert, y = minagehab, size = 15, color=persitence_prop)) +
+  ##geom_contour(data = df_persistence, aes(z = persitence_prop, color = ..level..), breaks = 0.95, linewidth = 1.5) +
+  geom_point(alpha = 0.99) +
+  scale_size_continuous(range = c(2, 3)) +  # Adjust size of bubbles
+  scale_y_continuous(n.breaks=12) +
+  coord_fixed(ratio = ratio_val) +
+  facet_wrap(~species) +
+
+    labs(x = "Habitat conversion rate",
+       y = "Habitat age threshold ",
+       color = "Persistence rate") + 
+  scale_color_gradientn(colors = c("grey90", brewer.pal(10, "Spectral")[10:1])) +
+  theme_bw() +
+  guides(size = "none") +
+  theme(axis.text.x = element_text(size = 11, angle=45, hjust = 1), axis.text.y = element_text(size = 11), axis.title.x = element_text(size = 14), 
+        axis.title.y = element_text(size = 14), strip.text.x = element_text(size = 14), legend.position='bottom') 
+}
+plot_persistence_success()
+
+
+### Max persistence rate if habitat conversion factor below threshold and habitat age threshold <= 30
+maxpersist_fastconv_SpPersCol <- round(max(df_target_SpPersCol_occ95$persitence_prop [which(df_target_SpPersCol_occ95$HabitatConvert>0.001 & df_target_SpPersCol_occ95$minagehab<=30)]), 2)
+maxpersist_fastconv_SpSuccSpec <- round(max(df_target_SpSuccSpec_occ95$persitence_prop [which(df_target_SpSuccSpec_occ95$HabitatConvert>0.001 & df_target_SpSuccSpec_occ95$minagehab<=30)]), 2)
+maxpersist_fastconv_SpPersCol
+maxpersist_fastconv_SpSuccSpec
+
+#######
+## PLOT  occupancy time series
+Dat_SpPersCol_series <- SummaryStatsGlobal %>% dplyr::select(SpPersCol_occratio_t0, SpPersCol_occratio_t1, SpPersCol_occratio_t2, SpPersCol_occratio_t5, 
+                                                       SpPersCol_occratio_t10, SpPersCol_occratio_t15, SpPersCol_occratio_t20, SpPersCol_occratio_t25, SpPersCol_occratio_t50, SpPersCol_occratio_T, minagehab, CCP, HCF, Patch50Ratio_minval) %>%
+  mutate (SimNo = paste0("sim_", SimNo = 1:dim(SummaryStatsGlobal)[1])) %>%
+  na.omit()
+Dat_SpPersCol_series <- Dat_SpPersCol_series[1:1000,]
+
+Dat_SpPersCol_series_long <- Dat_SpPersCol_series %>% dplyr::select(!minagehab & !CCP & !HCF & !Patch50Ratio_minval) %>% pivot_longer(!SimNo, names_to = "Time", values_to = "OccRatio") 
+Dat_SpPersCol_series_long <- left_join(Dat_SpPersCol_series_long, Dat_SpPersCol_series[, c("SimNo", "minagehab", "CCP", "HCF", "Patch50Ratio_minval")], by = "SimNo", relationship = "many-to-many") %>%
+  mutate(year = str_replace_all(Time, "SpPersCol_occratio_t0", "0")) %>%
+  mutate(year = str_replace_all(year, "SpPersCol_occratio_t1", "5")) %>%
+  mutate(year = str_replace_all(year, "SpPersCol_occratio_t2", "10")) %>%
+  mutate(year = str_replace_all(year, "SpPersCol_occratio_t5", "25")) %>%
+  mutate(year = str_replace_all(year, "SpPersCol_occratio_t10", "50")) %>%  
+  mutate(year = str_replace_all(year, "SpPersCol_occratio_t15", "75")) %>%
+  mutate(year = str_replace_all(year, "SpPersCol_occratio_t20", "100")) %>%
+  mutate(year = str_replace_all(year, "SpPersCol_occratio_t25", "125")) %>%
+  mutate(year = str_replace_all(year, "SpPersCol_occratio_t50", "250")) %>%
+  mutate(year = str_replace_all(year, "SpPersCol_occratio_T", "500"))  %>%
+  mutate(year = as.numeric(year)) %>%
+  mutate(species = "Habiat generalists")
+
+Dat_SpSuccSpec_series <- SummaryStatsGlobal %>% dplyr::select(SpSuccSpec_occratio_t0, SpSuccSpec_occratio_t1, SpSuccSpec_occratio_t2, SpSuccSpec_occratio_t5, 
+                                                       SpSuccSpec_occratio_t10, SpSuccSpec_occratio_t15, SpSuccSpec_occratio_t20, SpSuccSpec_occratio_t25, SpSuccSpec_occratio_t50, SpSuccSpec_occratio_T, minagehab, CCP, HCF, Patch50Ratio_minval) %>%
+  mutate (SimNo = paste0("sim_", SimNo = 1:dim(SummaryStatsGlobal)[1])) %>%
+  na.omit()
+Dat_SpSuccSpec_series <- Dat_SpSuccSpec_series[1:1000,]
+
+Dat_SpSuccSpec_series_long <- Dat_SpSuccSpec_series %>% dplyr::select(!minagehab & !CCP & !HCF) %>% pivot_longer(!SimNo, names_to = "Time", values_to = "OccRatio") 
+Dat_SpSuccSpec_series_long <- left_join(Dat_SpSuccSpec_series_long, Dat_SpSuccSpec_series[, c("SimNo", "minagehab", "CCP", "HCF", "Patch50Ratio_minval")], by = "SimNo", relationship = "many-to-many") %>%
+  mutate(year = str_replace_all(Time, "SpSuccSpec_occratio_t0", "0")) %>%
+  mutate(year = str_replace_all(year, "SpSuccSpec_occratio_t1", "5")) %>%
+  mutate(year = str_replace_all(year, "SpSuccSpec_occratio_t2", "10")) %>%
+  mutate(year = str_replace_all(year, "SpSuccSpec_occratio_t5", "25")) %>%
+  mutate(year = str_replace_all(year, "SpSuccSpec_occratio_t10", "50")) %>%  
+  mutate(year = str_replace_all(year, "SpSuccSpec_occratio_t15", "75")) %>%
+  mutate(year = str_replace_all(year, "SpSuccSpec_occratio_t20", "100")) %>%
+  mutate(year = str_replace_all(year, "SpSuccSpec_occratio_t25", "125")) %>%
+  mutate(year = str_replace_all(year, "SpSuccSpec_occratio_t50", "250")) %>%
+  mutate(year = str_replace_all(year, "SpSuccSpec_occratio_T", "500"))  %>%
+  mutate(year = as.numeric(year)) %>%
+  mutate(species = "Disturbance specialists")
+
+plot_SpPersCol_series <- ggplot(Dat_SpPersCol_series_long, aes(x = year, y = OccRatio, color = Patch50Ratio_minval, group = SimNo)) + 
+  geom_line() + theme_bw() + 
+  #  scale_colour_viridis_c(option = "plasma", direction =-1) + 
+  scale_colour_viridis_c(option = "viridis", direction =-1) + 
+  labs(x= "Time [years]", y = "Occupancy ratio", color="Habitat compensation factor") +
+  theme(axis.text.x = element_text(size = 11), axis.text.y = element_text(size = 11), axis.title.x = element_text(size = 14), 
+        axis.title.y = element_text(size = 14), strip.text.x = element_text(size = 14), legend.position='bottom') 
+
+plot_SpSuccSpec_series <- ggplot(Dat_SpSuccSpec_series_long, aes(x = year, y = OccRatio, color = CCP, group = SimNo)) + 
+  geom_line() + theme_bw() + 
+#  scale_colour_viridis_c(option = "plasma", direction =-1) +
+  scale_colour_viridis_c(option = "viridis", direction =-1) +
+    labs(x= "Time [years]", y = "Occupancy ratio", color="Conservation committment period") +
+  theme(axis.text.x = element_text(size = 11), axis.text.y = element_text(size = 11), axis.title.x = element_text(size = 14), 
+        axis.title.y = element_text(size = 14), strip.text.x = element_text(size = 14), legend.position='bottom') 
+
+
+Dat_popseries_all <- rbind(Dat_SpSuccSpec_series_long, Dat_SpPersCol_series_long)
+
+plot_occseries <- ggplot(Dat_popseries_all, aes(x = year, y = OccRatio, color =CCP*tyears, group = SimNo)) + 
+  geom_line() + theme_bw() +
+  geom_hline(yintercept=1, col='grey50', lty= 3, lwd = 1) + 
+  geom_hline(yintercept=0.95, col='grey75', lty= 4, lwd = 1) + 
+  facet_wrap(~species) +
+ # scale_colour_viridis_c(option = "plasma", direction =-1) +
+  scale_colour_viridis_c(option = "viridis", direction =-1) +
+  labs(x= "Time [years]", y = "Occupancy ratio", color="Conservation committment period") +
+  theme(axis.text.x = element_text(size = 11), axis.text.y = element_text(size = 11), axis.title.x = element_text(size = 14), 
+        axis.title.y = element_text(size = 14), strip.text.x = element_text(size = 14), legend.position='bottom') 
+plot_occseries
+
+
+
+##################
+# Define and explore targets that combine all aspects of interest
+
+SummaryStatsGlobal <- SummaryStatsGlobal %>%
+  mutate(target_SpPersCol_Occ = ifelse(target_SpPersCol_Occ_recov==1 | target_SpPersCol_Occ_recov==1, 1, 0)) %>% 
+  mutate(target_SpSuccSpec_Occ = ifelse(target_SpSuccSpec_Occ_recov==1 | target_SpSuccSpec_Occ_recov==1, 1, 0)) %>% 
+  mutate(target_Mature = ifelse(target_patch50_95==1 | target_patch50_recov==1, 1, 0)) %>% 
+  mutate(target_Intact8Mature_95 = ifelse(target_intact_habitat95==1 & target_patch50_95==1, 1, 0)) %>%
+  mutate(target_Intact8Mature_recov = ifelse(target_intact_habitat95==1 & target_patch50_recov==1, 1, 0)) %>%
+  mutate(target_Intact8Mature = ifelse(target_intact_habitat95==1 & target_Mature==1, 1, 0)) %>%
+  mutate(target_Intact8Mature8SpPersCol_95 = ifelse(target_Intact8Mature ==1 & target_SpPersCol_Occ95==1, 1, 0)) %>%
+  mutate(target_Intact8Mature8SpPersCol_recov = ifelse(target_Intact8Mature ==1 & target_SpPersCol_Occ_recov==1, 1, 0)) %>%
+  mutate(target_Intact8Mature8SpPersCol = ifelse(target_Intact8Mature==1 & target_SpPersCol_Occ==1, 1, 0)) %>%  
+  mutate(target_ALL_95 = ifelse(target_Intact8Mature==1 & target_SpPersCol_Occ95==1 & target_SpPersCol_Occ95==1, 1, 0)) %>%
+  mutate(target_ALL_recov = ifelse(target_Intact8Mature==1 & target_SpPersCol_Occ_recov==1 & target_SpSuccSpec_Occ_recov==1, 1, 0)) %>%
+  mutate(target_ALL = ifelse(target_Intact8Mature==1 & target_SpPersCol_Occ==1 & target_SpSuccSpec_Occ==1, 1, 0))  
+
+table(SummaryStatsGlobal$target_Intact8Mature_95); round(mean(SummaryStatsGlobal$target_patch50_95, na.rm=TRUE), 2)
+table(SummaryStatsGlobal$target_Intact8Mature_95)
+table(SummaryStatsGlobal$target_Intact8Mature8SpPersCol_95)
+table(SummaryStatsGlobal$target_Intact8Mature8SpPersCol_recov)
+table(SummaryStatsGlobal$target_Intact8Mature8SpPersCol)
+table(SummaryStatsGlobal$target_ALL_95)
+table(SummaryStatsGlobal$target_ALL_recov)
+
+
+#######
+## PLOT management conditions where 95% intactness target is met
+
+# Data from of key management parameters and intact target outcomes only
+df_target_Intact <- drop_na(SummaryStatsGlobal %>% dplyr::select(CCP, HCF, target_intact_habitat95)) %>% 
+  group_by(CCP, HCF) %>%
+  summarise(target_prop = mean(target_intact_habitat95, na.rm = TRUE),
+            .groups = "drop")
+
+df_target_Intact8Mature <- drop_na(SummaryStatsGlobal %>% dplyr::select(CCP, HCF, target_Intact8Mature)) %>% 
+  group_by(CCP, HCF) %>%
+  summarise(target_prop = mean(target_Intact8Mature, na.rm = TRUE),
+            .groups = "drop")
+
+df_target_Intact8Mature8SpPersCol <- drop_na(SummaryStatsGlobal %>% dplyr::select(CCP, HCF, target_Intact8Mature8SpPersCol)) %>% 
+  group_by(CCP, HCF) %>%
+  summarise(target_prop = mean(target_Intact8Mature8M, na.rm = TRUE),
+            .groups = "drop")
+
+df_target_ALL <- drop_na(SummaryStatsGlobal %>% dplyr::select(CCP, HCF, target_ALL)) %>% 
+  group_by(CCP, HCF) %>%
+  summarise(target_prop = mean(target_ALL, na.rm = TRUE),
+            .groups = "drop")
+
+plotFunc_target_success <- function(DFdata){
+  x_range <- diff(range(DFdata$CCP* tyears))
+  y_range <- diff(range(DFdata$HCF))
+  ratio_val <- x_range / y_range
+  
+  ggplot(data= DFdata, aes(x = CCP* tyears, y = HCF, color=target_prop)) +
+ # geom_contour(data = DFdata, aes(z = target_prop, color = ..level..), breaks = 0.90, linewidth = 1.5) +
+  geom_point(size = 4, alpha = 0.9) +
+  #geom_text(data=DFdata, aes(x = CCP* tyears, y = HCF, label=round(as.numeric(target_prop),1)),  colour = "grey50", size=4) +
+  scale_size_continuous(range = c(3, 11)) +  # Adjust size of bubbles
+  scale_y_continuous(n.breaks=12) +
+  coord_fixed(ratio = ratio_val) +
+  labs(x = "Conservation commitment period [years]",
+       y = "Habitat compensation factor",
+       color = "Success rate of target") + 
+  scale_color_gradientn(colors = c("grey90", brewer.pal(10, "Spectral")[10:1])) +
+  theme_bw() +
+  guides(size = "none") +
+  theme(axis.text.x = element_text(size = 11), axis.text.y = element_text(size = 11), axis.title.x = element_text(size = 14), 
+        axis.title.y = element_text(size = 14), strip.text.x = element_text(size = 14)) 
+}
+  
+plot_target_1 <- plotFunc_target_success(DFdata = df_target_Intact) + theme(legend.position = "bottom") + labs(title="LQ", x = NULL, y = NULL)
+plot_target_2 <- plotFunc_target_success(DFdata = df_target_Intact8Mature)  + labs(title="LQ + Mat", x = NULL, y = NULL)
+plot_target_3 <- plotFunc_target_success(DFdata = df_target_Intact8Mature8SpPersCol)+ labs(title="LQ + Mat + PCol", x = NULL, y = NULL)
+plot_target_4 <- plotFunc_target_success(DFdata= df_target_ALL) + theme(legend.position = "bottom") + labs(title="LQ + Mat + PCol + SSpe", x = NULL, y = NULL)
+legend_target <- get_legend(plot_target_4)
+
+## ggarrange approach
+plot_target_combine <- ggarrange(plot_target_1, plot_target_2, plot_target_3, plot_target_4,
+                                 ncol = 2, nrow = 2, 
+                                 common.legend = TRUE, legend = "bottom")  
+### ggsave(file="plot_target_combine.tiff", plot=plot_target_combine_labs, dpi=300, width = 3.307*2, height = 3.307*2, units = 'in')
+
+plot_target_combine_2 <- ggarrange(plot_target_1, plot_target_2, plot_target_3, plot_target_4,
+                                   ncol = 2, nrow = 2, 
+                                   common.legend = FALSE, legend = "none") 
+
+library(grid)
+plot_target_combine_labs <- annotate_figure(plot_target_combine, left = textGrob("Habitat compensation factor", rot = 90, vjust = 1, gp = gpar(cex = 1.3)),
+                bottom = textGrob("Conservation commitment period [years]", gp = gpar(cex = 1.3)))
+plot_target_combine_labs
+
+plot_target_combine_labs_2 <- annotate_figure(plot_target_combine_2, left = textGrob("Habitat compensation factor", rot = 90, vjust = 1, gp = gpar(cex = 1.3)),
+                                            bottom = textGrob("Conservation commitment period [years]", gp = gpar(cex = 1.3)))
+plot_target_combine_labs_2
+
+plot_target_combine_labsleg <- grid.arrange(plot_target_combine_labs_2, legend_target, ncol = 1, heights = c(9, 1))
+
+
+
+###################
+### Thereshold to achive 95% success rates to meet certain offsetting targets
+min_hcf_Intact <- df_target_Intact %>% filter (target_prop >= 0.95) %>% summarise(min_HCF = min(HCF, na.rm = TRUE))
+min_CCP_Intact <- tyears * df_target_Intact %>% filter (target_prop >= 0.95) %>% summarise(min_CCP = min(CCP, na.rm = TRUE))
+
+min_hcf_Intact8Mature <- df_target_Intact8Mature %>% filter (target_prop >= 0.95) %>% summarise(min_HCF = min(HCF, na.rm = TRUE))
+min_CCP_Intact8Mature <- tyears * df_target_Intact8Mature %>% filter (target_prop >= 0.95) %>% summarise(min_CCP = min(CCP, na.rm = TRUE))
+
+min_hcf_Intact8Mature8SpPersCol <- df_target_Intact8Mature8SpPersCol %>% filter (target_prop >= 0.95) %>% summarise(min_HCF = min(HCF, na.rm = TRUE))
+min_CCP_Intact8Mature8SpPersCol <- tyears * df_target_Intact8Mature8SpPersCol %>% filter (target_prop >= 0.95) %>% summarise(min_CCP = min(CCP, na.rm = TRUE))
+
+min_hcf_ALL <- df_target_ALL %>% filter (target_prop >= 0.95) %>% summarise(min_HCF = min(HCF, na.rm = TRUE))
+min_CCP_ALL <- tyears * df_target_ALL %>% filter (target_prop >= 0.95) %>% summarise(min_CCP = min(CCP, na.rm = TRUE))
+max_CCP_ALL <- tyears * df_target_ALL %>% filter (target_prop >= 0.95) %>% summarise(min_CCP = max(CCP, na.rm = TRUE))
+
+min_hcf_ALL_90 <- df_target_ALL %>% filter (target_prop >= 0.90) %>% summarise(min_HCF = min(HCF, na.rm = TRUE))
+min_CCP_ALL_90 <- tyears * df_target_ALL %>% filter (target_prop >= 0.90) %>% summarise(min_CCP = min(CCP, na.rm = TRUE))
+max_CCP_ALL_90 <- tyears * df_target_ALL %>% filter (target_prop >= 0.90) %>% summarise(min_CCP = max(CCP, na.rm = TRUE))
+
+
+
+##############
+## Explore trade-offs and balance of impact versus meeting conservation targets
+
+# Add indicator for scenarios that best balance impact and intactness
+SummaryStatsGlobal <-  SummaryStatsGlobal %>%
+  mutate(ImpactBalance_Intact = ifelse(as.numeric(NImpactMean) >= max(NImpactMean,na.rm=TRUE)*0.75 & target_intact_habitat95 == 1, 1,0)) %>%
+  mutate(ImpactBalance_Intact_shortterm = ifelse(as.numeric(NImpactMean) >= max(NImpactMean,na.rm=TRUE)*0.75 & target_intact_habitat95_shortterm == 1, 1,0)) %>%
+  mutate(ImpactBalance_Intact8Mature = ifelse(as.numeric(NImpactMean) >= max(NImpactMean,na.rm=TRUE)*0.75 & target_Intact8Mature == 1, 1,0)) %>%
+  mutate(ImpactBalance_Intact8Mature8SpPersCol  = ifelse(as.numeric(NImpactMean) >= max(NImpactMean,na.rm=TRUE)*0.75 & target_Intact8Mature8SpPersCol  == 1, 1,0)) %>%
+  mutate(ImpactBalance_ALL = ifelse(as.numeric(NImpactMean) >= max(NImpactMean,na.rm=TRUE)*0.75 & target_ALL == 1, 1,0)) %>%
+  mutate(ImpactSustainable = NImpactMean * target_ALL) %>%
+  mutate(ImpactSustainable = ImpactSustainable/max(ImpactSustainable)) %>%
+  mutate(ImpactSustainable_top100 = ifelse(ImpactSustainable >= sort(ImpactSustainable, decreasing = TRUE)[100], ImpactSustainable/max(ImpactSustainable), 0))
+
+
+
+imactsustain_hcf_range <- range(SummaryStatsGlobal$HCF[which(SummaryStatsGlobal$ImpactSustainable>0.75)])
+
+
+
+plot_ImpactSustainable <- ggplot(data= SummaryStatsGlobal, aes(x=CCP*tyears, y= ImpactSustainable/max(ImpactSustainable, size=HCF/15), color = HabitatConvert)) + 
+  ##geom_point() +
+  geom_point(data= SummaryStatsGlobal, aes(size=HCF/15)) + 
+  scale_size_continuous(name = "Habitat conversion rate", 
+                        breaks = seq(0.5, 6, 0.5),  # Adjust breaks as needed
+                        labels = seq(0.5, 6, 0.5)) +  # Adjust labels to show actual values
+    scale_colour_viridis_c(option="turbo", direction =1) +
+  labs(x= "Conservation commitment period", y = "Relative development intensity", color="Habitat conversion rate") + theme_bw() 
+  #guides(size = guide_legend(title = "Compensation factor")) 
+plot_ImpactSustainable
+
+
+
+
+
+
+plot_ImpactSustainable_top100 <- SummaryStatsGlobal %>% filter(HCF >= min_hcf_ALL & CCP >=(min_CCP_ALL/tyears) & ImpactSustainable>0)  %>%      
+  ggplot(aes(x=CCP*tyears, y= HCF, color = HabitatConvert)) + geom_jitter(width = 0.1, height = 0.1, size=4) +
+  scale_colour_viridis_c(option="turbo", direction =1) +
+  xlim(range(SummaryStatsGlobal$CCP*tyears)) + ylim(range(SummaryStatsGlobal$HCF)) +
+  labs(x= "Conservation commitment period", y = "Habitat compensation factor", color="Habitat conversion rate") + theme_bw() +
+  theme(axis.text.x = element_text(size = 11), axis.text.y = element_text(size = 11), axis.title.x = element_text(size = 14), 
+        axis.title.y = element_text(size = 14), strip.text.x = element_text(size = 14), legend.position='bottom') 
+plot_ImpactSustainable_top100
+
+
+
+         
+plot_ImpactSustainable_top100 <- SummaryStatsGlobal %>% filter(ImpactSustainable_top100 > 0)  %>%      
+    ggplot(aes(x=CCP*tyears, y= HCF, color = HabitatConvert)) + geom_jitter(width = 0.1, height = 0.1, size=4) +
+    scale_colour_viridis_c(option="turbo", direction =1) +
+    xlim(range(SummaryStatsGlobal$CCP*tyears)) + ylim(range(SummaryStatsGlobal$HCF)) +
+    labs(x= "Conservation commitment period", y = "Habitat compensation factor", color="Habitat conversion rate") + theme_bw() +
+  theme(axis.text.x = element_text(size = 11), axis.text.y = element_text(size = 11), axis.title.x = element_text(size = 14), 
+        axis.title.y = element_text(size = 14), strip.text.x = element_text(size = 14), legend.position='bottom') 
+plot_ImpactSustainable_top100
+### ggsave(file="plot_ImpactSustainable_top100.tiff", plot=plot_ImpactSustainable_top100, dpi=300, width = 3.307*2, height = 3.307*2, units = 'in')  
+
+# Explor the relationship of 
+model_convert_hcf <-  glm(HabitatConvert ~ HCF + CCP, data = SummaryStatsGlobal %>% filter(ImpactSustainable_top100 > 0))
+summary(model_convert_hcf)
+
+
+plotSim_Impact_vs_Intactness <- ggplot(data = SummaryStatsGlobal, aes(x=NImpactMean/M , y = IntactRatio_HabitatMin, color= HCF)) + 
+  #  geom_rect(aes(xmin = max(NImpactMean/M, na.rm=TRUE)*0.95, xmax = max(NImpactMean/M, na.rm=TRUE), ymin = 0.95, ymax = 1.01),
+  #            color = "#E64B3599", fill = "#E64B3599", alpha = 0.5, size = 1) + 
+  #  geom_rect(aes(xmin = max(NImpactMean/M, na.rm=TRUE)*0.75, xmax = max(NImpactMean/M, na.rm=TRUE), ymin = 0.95, ymax = 1.01),
+  #            color = "#F39B7F99", fill = "#F39B7F99", alpha = 0.5, size = 1) + 
+  geom_point() + theme_bw() +
+  scale_colour_viridis_c(option="turbo", direction =-1) +
+  geom_hline(yintercept=1, col='grey50', lty= 3, lwd = 1.5) + 
+  geom_hline(yintercept=0.95, col='grey75', lty= 4, lwd = 1.5) + 
+  # geom_vline(xintercept=0.95, col='orange', lty= 3, lwd = 1) + 
+  geom_vline(xintercept=(max(SummaryStatsGlobal$NImpactMean, na.rm=TRUE)/M*0.75), col="magenta", lty= 4, lwd = 1.5) +
+  labs(x= "Impact intensity", y = "Landscape intactness", color="Compensation factor") +
+  theme(axis.text.x = element_text(size = 11), axis.text.y = element_text(size = 11), axis.title.x = element_text(size = 14), 
+        axis.title.y = element_text(size = 14), strip.text.x = element_text(size = 14), legend.position='bottom')
+
+### ggsave(file="plotSim_Impact_vs_Intactness.tiff", plot=plotSim_Impact_vs_Intactness, dpi=300, width = 3.307*2, height = 3.307*2, units = 'in')  
+
+SummaryStatsGlobal_balance <- SummaryStatsGlobal %>% filter(ImpactBalance_Intact8Mature8SpPersCol==1)
+
+plotSim_ImpactConditions <- ggplot(data = SummaryStatsGlobal_balance, aes(x=HCF , y = CCP*tyears, color= HabitatConvert)) + 
+  geom_point() + theme_bw() +
+  scale_colour_viridis_c(option="inferno", direction = 1) +
+  labs(x= "Compensation factor", y = "Conservation commitment period [year]", color="Habitat conversion rate") +
+  theme(axis.text.x = element_text(size = 11), axis.text.y = element_text(size = 11), axis.title.x = element_text(size = 14), 
+        axis.title.y = element_text(size = 14), strip.text.x = element_text(size = 14), legend.position='bottom')  
+
+
+plot_ImpactIntactBalance <- ggarrange(plotSim_Impact_vs_Intactness, plotSim_ImpactConditions, ncol=2)
+
+
+
+plotSim_FallowExhaustTime <- ggplot(data = SummaryStatsGlobal, aes(x=HabitatConvert, y = FallowExhaustTime * tyears, color= HCF)) + 
+  geom_point() + theme_bw() +
+  scale_colour_viridis_c(option="turbo", direction =-1) + 
+  #scale_color_brewer(palette="Spectral") 
+  ylim(0, 1100) +
+  labs(x= "Habitat conversion rate", y = "Fallow land exhaustion [year]", color="Compensation factor") +
+  theme(axis.text.x = element_text(size = 11), axis.text.y = element_text(size = 11), axis.title.x = element_text(size = 14), 
+        axis.title.y = element_text(size = 14), strip.text.x = element_text(size = 14), legend.position='bottom')
