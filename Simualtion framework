@@ -124,7 +124,7 @@ SummaryStatsGlobal$npatch_age50_maxval <- NA
 SummaryStatsGlobal$npatch_age50_minval <- NA
 
 SummaryStatsGlobal$SpPersCol_t0 <- NA
-SummaryStatsGlobal$SpPersCol_t1 <- 
+SummaryStatsGlobal$SpPersCol_t1 <- NA
 SummaryStatsGlobal$SpPersCol_t2 <- NA  
 SummaryStatsGlobal$SpPersCol_t5 <- NA
 SummaryStatsGlobal$SpPersCol_t10 <- NA
@@ -414,7 +414,7 @@ for(sim in 1:NSimulations){
     OccPatch_SpPersCol$Occ <- ifelse(SimPatch$AgeMean[match(OccPatch_SpPersCol$patchID,  SimPatch$patchID)] <= minagehab, 0, OccPatch_SpPersCol$Occ)
     
     # Extinction in patches by chance  
-    OccPatch_SpPersCol$Occ -  rbinom(length(OccPatch_SpPersCol$Occ), 1, OccPatch_SpPersCol$Occ*(1-occext))
+    OccPatch_SpPersCol$Occ <-  rbinom(length(OccPatch_SpPersCol$Occ), 1, OccPatch_SpPersCol$Occ*(1-occext))
     
     # Colonisation of patches
     patchID_agethreshold <- SimPatch$patchID[which(SimPatch$AgeMean >=minagehab)]
